@@ -57,7 +57,7 @@
 	
 	// read the file
 	
-	CC3ResourceNode* rezNode = [CC3PODResourceNode nodeFromFile: @"scene.pod" expectsVerticallyFlippedTextures:YES];
+	CC3ResourceNode* rezNode = [CC3PODResourceNode nodeFromFile: @"scene.pod"];
 	[self addChild: rezNode];
 	
 	// fix some issues with the camera and lamp
