@@ -1,9 +1,9 @@
 /*
  * CC3Light.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,7 +30,6 @@
 /** @file */	// Doxygen marker
 
 #import "CC3Node.h"
-#import "CC3OpenGLES11Lighting.h"
 #import "CC3MeshNode.h"
 
 @protocol CC3ShadowProtocol;
@@ -67,9 +66,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  *
  * To turn a CC3Light on or off, set the visible property.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  *
  * Lights in different scenes (different instances of CC3Scene) can have the same
  * GL lightIndex value. Applications that make use of multiple CC3Scenes, either as
@@ -82,23 +80,21 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * reserved for use by the 2D scene will not be used by the 3D scene.
  */
 @interface CC3Light : CC3Node {
-	CC3OpenGLES11Light* gles11Light;
-	CC3ShadowCastingVolume* shadowCastingVolume;
-	CC3CameraShadowVolume* cameraShadowVolume;
-	CC3StencilledShadowPainterNode* stencilledShadowPainter;
-	CCArray* shadows;
-	CC3Vector4 homogeneousLocation;
-	ccColor4F ambientColor;
-	ccColor4F diffuseColor;
-	ccColor4F specularColor;
-	CC3AttenuationCoefficients attenuationCoefficients;
-	GLfloat spotExponent;
-	GLfloat spotCutoffAngle;
-	GLfloat shadowIntensityFactor;
-	GLuint lightIndex;
-	BOOL isDirectionalOnly : 1;
-	BOOL shouldCopyLightIndex : 1;
-	BOOL shouldCastShadowsWhenInvisible : 1;
+	CC3ShadowCastingVolume* _shadowCastingVolume;
+	CC3CameraShadowVolume* _cameraShadowVolume;
+	CC3StencilledShadowPainterNode* _stencilledShadowPainter;
+	NSMutableArray* _shadows;
+	ccColor4F _ambientColor;
+	ccColor4F _diffuseColor;
+	ccColor4F _specularColor;
+	CC3AttenuationCoefficients _attenuation;
+	GLfloat _spotExponent;
+	GLfloat _spotCutoffAngle;
+	GLfloat _shadowIntensityFactor;
+	GLuint _lightIndex;
+	BOOL _isDirectionalOnly : 1;
+	BOOL _shouldCopyLightIndex : 1;
+	BOOL _shouldCastShadowsWhenInvisible : 1;
 }
 
 /** Returns whether this node is a light. Returns YES. */
@@ -109,9 +105,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * during instance initialization. The value of lightIndex will be between zero and one 
  * less than the maximium number of available lights, inclusive.
  *
- * The maximum number of lights available is determined by the platform. That number can
- * be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value. All platforms
- * support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 @property(nonatomic, readonly) GLuint lightIndex;
 
@@ -147,13 +142,14 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
 @property(nonatomic, assign) BOOL isDirectionalOnly;
 
 /**
- * The location of this light in the 4D homogeneous coordinate space. The x, y and z
- * components of the returned value will be the same as those in the globalLocation
- * property. The w-component will be one if the light is considered to be actually
- * located at the globalLocation property, or zero if the globalLocation property is
- * an indication of the direction the light is coming from, and not an absolute location.
+ * The position of this light in a global 4D homogeneous coordinate space.
+ *
+ * The X, Y & Z components of the returned 4D vector are the same as those in the globalLocation
+ * property. The W-component will be zero if the isDirectionalOnly property is set to YES, indicating
+ * that this position represents a direction. The W-component will be one if the isDirectionalOnly
+ * property is set to NO, indicating that this position represents a specific location.
  */
-@property(nonatomic, readonly) CC3Vector4 homogeneousLocation;
+@property(nonatomic, readonly) CC3Vector4 globalHomogeneousPosition;
 
 /**
  * Indicates the intensity distribution of the light.
@@ -189,7 +185,10 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  *
  * The initial value of this property is kCC3DefaultLightAttenuationCoefficients.
  */
-@property(nonatomic, assign) CC3AttenuationCoefficients attenuationCoefficients;
+@property(nonatomic, assign) CC3AttenuationCoefficients attenuation;
+
+/** @deprecated Property renamed to attenuation */
+@property(nonatomic, assign) CC3AttenuationCoefficients attenuationCoefficients DEPRECATED_ATTRIBUTE;
 
 /**
  * When a copy is made of this node, indicates whether this node should copy the value
@@ -206,9 +205,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * Once that limit is reached, additional lights cannot be created, and attempting
  * to copy this node will fail, returning a nil node.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  *
  * When this property is set to YES, and this light node is copied, the new copy will
  * be assigned the same lightIndex as this node. This means that the copy may not be
@@ -250,9 +248,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * The lightIndex property will be set to the next available GL light index.
  * This method will return nil if all GL light indexes have been consumed.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 -(id) init;
 
@@ -262,9 +259,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * The lightIndex property will be set to the next available GL light index.
  * This method will return nil if all GL light indexes have been consumed.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 -(id) initWithTag: (GLuint) aTag;
 
@@ -275,9 +271,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * The lightIndex property will be set to the next available GL light index.
  * This method will return nil if all GL light indexes have been consumed.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 -(id) initWithName: (NSString*) aName;
 
@@ -287,9 +282,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * The lightIndex property will be set to the next available GL light index.
  * This method will return nil if all GL light indexes have been consumed.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 -(id) initWithTag: (GLuint) aTag withName: (NSString*) aName;
 
@@ -305,9 +299,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method will return nil if the specified light index is not less than the
  * maximum number of lights available.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 -(id) initWithLightIndex: (GLuint) ltIndx;
 
@@ -322,9 +315,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method will return nil if the specified light index is not less than the
  * maximum number of lights available.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 -(id) initWithTag: (GLuint) aTag withLightIndex: (GLuint) ltIndx;
 
@@ -340,9 +332,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method will return nil if the specified light index is not less than the
  * maximum number of lights available.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 -(id) initWithName: (NSString*) aName withLightIndex: (GLuint) ltIndx;
 
@@ -357,9 +348,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method will return nil if the specified light index is not less than the
  * maximum number of lights available.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 -(id) initWithTag: (GLuint) aTag withName: (NSString*) aName withLightIndex: (GLuint) ltIndx;
 
@@ -375,9 +365,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method will return nil if the specified light index is not less than the
  * maximum number of lights available.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 +(id) lightWithLightIndex: (GLuint) ltIndx;
 
@@ -392,9 +381,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method will return nil if the specified light index is not less than the
  * maximum number of lights available.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 +(id) lightWithTag: (GLuint) aTag withLightIndex: (GLuint) ltIndx;
 
@@ -410,9 +398,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method will return nil if the specified light index is not less than the
  * maximum number of lights available.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 +(id) lightWithName: (NSString*) aName withLightIndex: (GLuint) ltIndx;
 
@@ -427,9 +414,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method will return nil if the specified light index is not less than the
  * maximum number of lights available.
  *
- * The maximum number of lights available is determined by the platform. That number
- * can be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value.
- * All platforms support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 +(id) lightWithTag: (GLuint) aTag withName: (NSString*) aName withLightIndex: (GLuint) ltIndx;
 
@@ -456,7 +442,7 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  *
  * If this light is casting no shadows, this property will be nil.
  */
-@property(nonatomic, readonly) CCArray* shadows;
+@property(nonatomic, strong, readonly) NSArray* shadows;
 
 /**
  * Adds a shadow to the shadows cast by this light.
@@ -496,7 +482,7 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * If not set directly, this property is lazily created when a shadow is added.
  * If no shadow has been added, this property will return nil.
  */
-@property(nonatomic, retain) CC3ShadowCastingVolume* shadowCastingVolume;
+@property(nonatomic, strong) CC3ShadowCastingVolume* shadowCastingVolume;
 
 /**
  * A specialized bounding volume that encloses a pyramidal volume between the
@@ -510,7 +496,7 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * If not set directly, this property is lazily created when a shadow is added.
  * If no shadow has been added, this property will return nil.
  */
-@property(nonatomic, retain) CC3CameraShadowVolume* cameraShadowVolume;
+@property(nonatomic, strong) CC3CameraShadowVolume* cameraShadowVolume;
 
 /**
  * The mesh node used to draw the shadows cast by any shadow volumes that have
@@ -523,32 +509,31 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * If not set directly, this property is lazily created when a shadow is added.
  * If no shadow has been added, this property will return nil.
  */
-@property(nonatomic, retain) CC3StencilledShadowPainterNode* stencilledShadowPainter;
+@property(nonatomic, strong) CC3StencilledShadowPainterNode* stencilledShadowPainter;
 
 /**
- * This property is used to adjust the shadow intensity as calculated when the
- * updateRelativeIntensityFrom: method is invoked. This property increases
- * flexibility by allowing the shadow intensity to be ajusted relative to that
- * calculated value to improve realisim.
+ * This property is used to adjust the shadow intensity as calculated when the 
+ * updateRelativeIntensityFrom: method is invoked. This property increases flexibility
+ * by allowing the shadow intensity to be ajusted relative to that calculated value to
+ * improve realisim.
  *
- * The intensity of shadows cast by this light is calculated by comparing the
- * intensity of the diffuse component of this light against the total ambient
- * and diffuse illumination from all lights, to get a measure of the fraction
- * of total scene illumination that is contributed by this light.
+ * The intensity of shadows cast by this light is calculated by comparing the intensity of
+ * the diffuse component of this light against the total ambient and diffuse illumination
+ * from all lights, to get a measure of the fraction of total scene illumination that is
+ * contributed by this light.
  *
- * Using this technique, the presence of multiple lights, or strong ambient
- * light, will serve to lighten the shadows cast by any single light. A single
- * light with no ambient light will cast completely opaque, black shadows.
+ * Using this technique, the presence of multiple lights, or strong ambient light, will
+ * serve to lighten the shadows cast by any single light. A single light with no ambient
+ * light will cast completely opaque, black shadows.
  *
- * That fraction, representing the fraction of overall light coming from this
- * light, is then multiplied by the value of this property to determine the
- * intensity (opacity) of the shadows cast by this light.
+ * That fraction, representing the fraction of overall light coming from this light, is
+ * then multiplied by the value of this property to determine the intensity (opacity) of
+ * the shadows cast by this light.
  *
- * This property must be zero or a positive value. A value between zero and
- * one will serve to to lighten the shadow, relative to the shadow intensity
- * (opacity) calculated from the relative intensity of this light, and a value
- * of greater than one will serve to darken the shadow, relative to that
- * calculated intensity.
+ * This property must be zero or a positive value. A value between zero and one will serve
+ * to to lighten the shadow, relative to the shadow intensity (opacity) calculated from the
+ * relative intensity of this light, and a value of greater than one will serve to darken
+ * the shadow, relative to that calculated intensity.
  *
  * The initial value of this property is one, meaning that the shadow intensity
  * calculated from the relative intensity of this light will be used without adjustment.
@@ -593,7 +578,15 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method is invoked automatically by CC3Scene near the beginning of each frame
  * drawing cycle. Usually, the application never needs to invoke this method directly.
  */
--(void) turnOn;
+-(void) turnOnWithVisitor: (CC3NodeDrawingVisitor*) visitor;
+
+/**
+ * Turns this light off on by disabling this light in the GL engine.
+ *
+ * This method is invoked automatically by CC3Scene at the end of each frame drawing cycle.
+ * Usually, the application never needs to invoke this method directly.
+ */
+-(void) turnOffWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 
 #pragma mark Managing the pool of available GL lights
@@ -601,9 +594,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
 /**
  * Returns the number of lights that have already been instantiated (and not yet deallocated).
  *
- * The maximum number of lights available is determined by the platform. That number can
- * be retrieved from [CC3OpenGLES11Engine engine].platform.maxLights.value. All platforms
- * support at least eight lights.
+ * The maximum number of lights available is determined by the platform. That number can be retrieved
+ * from the CC3OpenGL.sharedGL.maxNumberOfLights property. All platforms support at least eight lights.
  */
 +(GLuint) lightCount;
 
@@ -616,7 +608,7 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
 
 /**
  * Sets the smallest index number to assign to a 3D light. This value should be between
- * zero inclusive and [CC3OpenGLES11Engine engine].platform.maxLights.value exclusive.
+ * zero inclusive and CC3OpenGL.sharedGL.maxNumberOfLights exclusive.
  *
  * If the 2D scene uses lights, setting this value to a number above zero will reserve
  * the indexes below this number for the 2D scene and those indexes will not be used in
@@ -633,7 +625,7 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * This method is invoked automatically by CC3Scene near the beginning of each frame
  * drawing cycle. Usually, the application never needs to invoke this method directly.
  */
-+(void) disableReservedLights;
++(void) disableReservedLightsWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 @end
 
@@ -675,8 +667,7 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * locations, rays, shapes, and other bounding volumes intersect its volume.
  */
 @interface CC3LightCameraBridgeVolume : CC3BoundingVolume <CC3NodeTransformListenerProtocol> {
-	CC3Frustum* cameraFrustum;
-	CC3Light* light;
+	CC3Light* _light;
 }
 
 /**
@@ -718,10 +709,10 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * testing whether locations, rays, shapes, and other bounding volumes intersect its volume.
  */
 @interface CC3ShadowCastingVolume : CC3LightCameraBridgeVolume {
-	CC3Plane planes[11];
-	CC3Vector vertices[9];
-	GLuint planeCount;
-	GLuint vertexCount;
+	CC3Plane _planes[11];
+	CC3Vector _vertices[9];
+	GLuint _planeCount;
+	GLuint _vertexCount;
 }
 
 @end
@@ -742,8 +733,8 @@ static const CC3AttenuationCoefficients kCC3DefaultLightAttenuationCoefficients 
  * testing whether locations, rays, shapes, and other bounding volumes intersect its volume.
  */
 @interface CC3CameraShadowVolume : CC3LightCameraBridgeVolume {
-	CC3Plane planes[6];
-	CC3Vector vertices[5];
+	CC3Plane _planes[6];
+	CC3Vector _vertices[5];
 }
 
 /** The frustum vertex on the near clipping plane of the camera, at the intersection of the top and left sides. */

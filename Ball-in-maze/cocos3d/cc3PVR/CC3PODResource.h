@@ -1,9 +1,9 @@
 /*
  * CC3PODResource.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,7 +30,7 @@
 /** @file */	// Doxygen marker
 
 
-#import "CC3Resource.h"
+#import "CC3NodesResource.h"
 #import "CC3PVRFoundation.h"
 #import "CC3Camera.h"
 #import "CC3MeshNode.h"
@@ -39,17 +39,16 @@
 
 
 /**
- * CC3PODResource is a CC3Resource that wraps a PVR POD data structure loaded from a file.
- * It handles loading object data from POD files, and creating CC3Nodes from that data.
- * This class is the cornerstone of POD file management, and is typically one of only two
- * POD-based classes that your application needs to be aware of, the other being
- * CC3PODResourceNode, which is a CC3ResourceNode that, in turn, wraps an instance
- * of this class. 
+ * CC3PODResource is a CC3NodesResource that wraps a PVR POD data structure loaded from a file.
+ * It handles loading object data from POD files, and creating CC3Nodes from that data. This
+ * class is the cornerstone of POD file management, and is typically one of only two POD-based
+ * classes that your application needs to be aware of, the other being CC3PODResourceNode,
+ * which is a CC3ResourceNode that, in turn, wraps an instance of this class. 
  *
- * CC3PODResource includes many properties and methods geared towards extracing object
- * data from the underlying complex POD resource structure. However, most of the properties
- * and methods exist as template methods to support internal behaviour and for overriding
- * in subclasses that might customize object creation from the POD data.
+ * CC3PODResource includes many properties and methods geared towards extracing object data
+ * from the underlying complex POD resource structure. However, most of the properties and
+ * methods exist as template methods to support internal behaviour and for overriding in
+ * subclasses that might customize object creation from the POD data.
  *
  * Basic use of this class is straightforward:
  *   -# Allocate and initialize the CC3PODResource instance and load a POD file into the
@@ -80,25 +79,24 @@
  * did not create yourself, and cannot edit.
  *
  * When customizing a subclass to change the properties of the objects returned, you will
- * most likely override one or more of the following methods:
- *   - buildMeshNodeAtIndex:
- *   - buildLightAtIndex:
- *   - buildCameraAtIndex:
- *   - buildStructuralNodeAtIndex:
- *   - buildMaterialAtIndex:
- *   - buildTextureAtIndex:
+ * most likely override one or more of the ...Class properties or build...AtIndex: methods:
  *
  * In most cases, the overridden method can simply invoke the superclass implementation
  * on this class, and then change the properties of the extracted object. In other cases
  * you may want to extract and return a customized subclass of the object of interest.
  */
-@interface CC3PODResource : CC3Resource {
-	PODClassPtr pvrtModel;
-	CCArray* allNodes;
-	CCArray* meshes;
-	CCArray* materials;
-	CCArray* textures;
-	ccTexParams textureParameters;
+@interface CC3PODResource : CC3NodesResource {
+	PODClassPtr _pvrtModel;
+	NSMutableArray* _allNodes;
+	NSMutableArray* _meshes;
+	NSMutableArray* _materials;
+	NSMutableArray* _textures;
+	ccTexParams _textureParameters;
+	ccColor4F _ambientLight;
+	ccColor4F _backgroundColor;
+	GLuint _animationFrameCount;
+	GLfloat _animationFrameRate;
+	BOOL _shouldAutoBuild : 1;
 }
 
 /**
@@ -110,8 +108,10 @@
 @property(nonatomic, readonly) PODClassPtr pvrtModel;
 
 /**
- * The total number of nodes in the POD file.
- * This is also the count of the allNodes array.
+ * The total number of nodes of all types in the POD file.
+ *
+ * This is a transient property that returns a valid value only during node building.
+ * Once node building is complete, this property will return zero.
  */
 @property(nonatomic, readonly) uint nodeCount;
 
@@ -119,57 +119,98 @@
  * A collection of all of the nodes extracted from the POD file.
  * This is the equivalent of flattening the nodes array.
  */
-@property(nonatomic, readonly) CCArray* allNodes;
+@property(nonatomic, strong, readonly) NSArray* allNodes;
 
-/** The total number of mesh nodes in the POD file. */
+/**
+ * The number of mesh nodes in the POD file.
+ *
+ * This is a transient property that returns a valid value only during node building.
+ * Once node building is complete, this property will return zero.
+ */
 @property(nonatomic, readonly) uint meshNodeCount;
 
-/** The total number of lights in the POD file. */
+/**
+ * The number of lights in the POD file.
+ *
+ * This is a transient property that returns a valid value only during node building.
+ * Once node building is complete, this property will return zero.
+ */
 @property(nonatomic, readonly) uint lightCount;
 
-/** The total number of cameras in the POD file. */
+/**
+ * The number of cameras in the POD file.
+ *
+ * This is a transient property that returns a valid value only during node building.
+ * Once node building is complete, this property will return zero.
+ */
 @property(nonatomic, readonly) uint cameraCount;
 
 /**
- * The total number of meshes in the POD file. This is different than the
- * meshNodeCount because mesh models may be used by more than one mesh node.
+ * The number of meshes in the POD file.
+ *
+ * This is a transient property that returns a valid value only during node building.
+ * Once node building is complete, this property will return zero.
  */
 @property(nonatomic, readonly) uint meshCount;
 
 /** A collection of the CC3Meshs extracted from  the POD file. */
-@property(nonatomic, readonly) CCArray* meshes;
+@property(nonatomic, strong, readonly) NSArray* meshes;
 
-/** The number of materials in the POD file. */
+/**
+ * The number of materials in the POD file.
+ *
+ * This is a transient property that returns a valid value only during node building.
+ * Once node building is complete, this property will return zero.
+ */
 @property(nonatomic, readonly) uint materialCount;
 
 /** A collection of the CC3Materials extracted from  the POD file. */
-@property(nonatomic, readonly) CCArray* materials;
+@property(nonatomic, strong, readonly) NSArray* materials;
 
-/** The number of different textures in the POD file. */
+/**
+ * The number of textures in the POD file.
+ *
+ * This is a transient property that returns a valid value only during node building.
+ * Once node building is complete, this property will return zero.
+ */
 @property(nonatomic, readonly) uint textureCount;
 
 /** A collection of the CC3Textures extracted from  the POD file. */
-@property(nonatomic, readonly) CCArray* textures;
+@property(nonatomic, strong, readonly) NSArray* textures;
 
 /** @deprecated Use the CC3Texture class-side property defaultTextureParameters instead. */
 @property(nonatomic, assign) ccTexParams textureParameters DEPRECATED_ATTRIBUTE;
 
 /** The number of frames of animation in the POD file. */
-@property(nonatomic, readonly) uint animationFrameCount;
+@property(nonatomic, readonly) GLuint animationFrameCount;
 
-/** The global ambient light of the scene in the POD file. */
+/** The frame rate of animation in the POD file, in frames per second. */
+@property(nonatomic, readonly) GLfloat animationFrameRate;
+
+/** The color of the ambient light in the scene. */
 @property(nonatomic, readonly) ccColor4F ambientLight;
 
-/** The background color of the scene in the POD file. */
+/** The background color of the scene. */
 @property(nonatomic, readonly) ccColor4F backgroundColor;
 
 
-#pragma mark Allocation and initialization
+#pragma mark Building
 
 /**
- * Template method that extracts and builds all components. This is automatically
- * invoked from the loadFromPODFile: method if the POD file was successfully loaded.
- * The application should not invoke this method directly.
+ * Indicates whether the build method should be invoked automatically when the file is loaded.
+ *
+ * The initial value of this property is YES. This property must be set before the loadFromFile:
+ * method is invoked. Be aware that the loadFromFile: method is automatically invoked automatically
+ * by several instance initializers. To use this property, initialize this instance with an
+ * initializer method that does not invoke the loadFromFile: method.
+ */
+@property(nonatomic, assign) BOOL shouldAutoBuild;
+
+/**
+ * Template method that extracts and builds all components. This is automatically invoked from
+ * the loadFromFile: method if the POD file was successfully loaded, and the shouldAutoBuild
+ * property is set to YES. Autobuilding is the default behaviour, and usually, the application
+ * should not need to invoke this method directly.
  * 
  * The order of component extraction and building is:
  *   - textures, by invoking the buildTextures template method
@@ -182,6 +223,52 @@
  */
 -(void) build;
 
+/**
+ * Saves the content of this resource to the file at the specified file path and returns whether
+ * the saving was successful.
+ *
+ * The specified file path may be either an absolute path, or a path relative to the application
+ * resource directory. If the file is located directly in the application resources directory,
+ * the specified file path can simply be the name of the file.
+ *
+ * The build method releases loaded POD content from memory once the file content has been extracted
+ * and into component objects. As a result, content may not be saved back to file after the build
+ * method has been invoked, and this method will raise an assertion error if this method is invoked
+ * after content has been released.
+ *
+ * The build method is invoked automatically from the loadFromFile: method and several initializer
+ * methods that invoke the loadFromFile: method if the shouldAutoBuild property is set to its default
+ * YES value. To use this method, initialize this instance with an initializer method that does not
+ * invoke the loadFromFile: method, set the shouldAutoBuild property to NO. Then, invoke the
+ * loadFromFile: method, make any changes, and invoke this method to save the content back to a file.
+ * Once saved, the build method can then be invoked to extract the content into component objects.
+ */
+-(BOOL) saveToFile: (NSString*) aFilePath;
+
+/**
+ * Saves the animation content of this resource to the file at the specified file path and
+ * returns whether the saving was successful. Animation content includes the nodes that have
+ * animation defined. All other content, including meshes, materials and textures are stripped
+ * from the POD resource that is saved. The POD content in this instance is not affected.
+ *
+ * The specified file path may be either an absolute path, or a path relative to the application
+ * resource directory. If the file is located directly in the application resources directory,
+ * the specified file path can simply be the name of the file.
+ *
+ * The build method releases loaded POD content from memory once the file content has been extracted
+ * and into component objects. As a result, content may not be saved back to file after the build
+ * method has been invoked, and this method will raise an assertion error if this method is invoked
+ * after content has been released.
+ *
+ * The build method is invoked automatically from the loadFromFile: method and several initializer
+ * methods that invoke the loadFromFile: method if the shouldAutoBuild property is set to its default
+ * YES value. To use this method, initialize this instance with an initializer method that does not
+ * invoke the loadFromFile: method, set the shouldAutoBuild property to NO. Then, invoke the
+ * loadFromFile: method, make any changes, and invoke this method to save the content back to a file.
+ * Once saved, the build method can then be invoked to extract the content into component objects.
+ */
+-(BOOL) saveAnimationToFile: (NSString*) aFilePath;
+
 
 #pragma mark Accessing node data and building nodes
 
@@ -190,6 +277,17 @@
 
 /** Returns the node with the specified name from the allNodes array. */
 -(CC3Node*) nodeNamed: (NSString*) aName;
+
+/**
+ * Template method that extracts and sets the scene info, including the following properties:
+ *   - animationFrameCount
+ *   - animationFrameRate
+ *   - ambientLight
+ *   - backgroundColor
+ *
+ * This template method can be overridden in a subclass if specialized processing is required.
+ */
+-(void) buildSceneInfo;
 
 /**
  * Template method that extracts and builds the nodes from the underlying data.
@@ -485,4 +583,121 @@
  */
 -(PODStructPtr) texturePODStructAtIndex: (uint) textureIndex;
 
+
+#pragma mark Content classes
+
+/**
+ * The class used to instantiate a structural node.
+ *
+ * Structural nodes are used to group mesh nodes together.
+ *
+ * This implementation returns CC3PODNode. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PODNode.
+ */
+@property(nonatomic, retain, readonly) Class structuralNodeClass;
+
+/**
+ * The class used to instantiate a mesh node.
+ *
+ * This implementation returns CC3PODMeshNode. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PODMeshNode.
+ */
+@property(nonatomic, retain, readonly) Class meshNodeClass;
+
+/**
+ * The class used to instantiate a mesh.
+ *
+ * This implementation returns CC3PODMesh. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PODMesh.
+ */
+@property(nonatomic, retain, readonly) Class meshClass;
+
+/**
+ * The class used to instantiate a material.
+ *
+ * This implementation returns CC3PODMaterial. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PODMaterial.
+ */
+@property(nonatomic, retain, readonly) Class materialClass;
+
+/**
+ * The class used to instantiate a mesh node in a vertex-skinned character.
+ *
+ * This implementation returns CC3PODSkinMeshNode. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PODSkinMeshNode.
+ */
+@property(nonatomic, retain, readonly) Class skinMeshNodeClass;
+
+/**
+ * The class used to instantiate a bone in a vertex-skinned character.
+ *
+ * This implementation returns CC3PODBone. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PODBone.
+ */
+@property(nonatomic, retain, readonly) Class boneNodeClass;
+
+/**
+ * The class used to instantiate a wrapper node around a vertex-skinned character.
+ *
+ * This implementation returns CC3SoftBodyNode. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3SoftBodyNode.
+ */
+@property(nonatomic, retain, readonly) Class softBodyNodeClass;
+
+/**
+ * The class used to instantiate a light.
+ *
+ * This implementation returns CC3PODLight. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PODLight.
+ */
+@property(nonatomic, retain, readonly) Class lightClass;
+
+/**
+ * The class used to instantiate a camera.
+ *
+ * This implementation returns CC3PODCamera. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PODCamera.
+ */
+@property(nonatomic, retain, readonly) Class cameraClass;
+
+/**
+ * The class used to create CC3PFXResource instances to read PFX files.
+ *
+ * PFX effects found in PFX resource files can be used to define the GLSL shaders and textures
+ * that are to be applied to a POD model under OpenGL ES 2.0. Each material in the POD file can
+ * optionally specify a PFX effect and the PFX file in which it is to be found.
+ *
+ * This implementation returns CC3PFXResource. To return a different class, create a subclass
+ * and override this method. The returned class must be a subclass of CC3PFXResource.
+ */
+@property(nonatomic, retain, readonly) Class pfxResourceClass;
+
 @end
+
+
+#pragma mark -
+#pragma mark Adding animation to nodes
+
+/** Extension category to provide support for POD animation. */
+@interface CC3Node (PODAnimation)
+
+/**
+ * Adds the animation contained in the specified POD file to this node and all its descendants.
+ * The animation is added as the specified track.
+ *
+ * If the specified POD file has already been loaded, it is retrieved from the resource cache.
+ * If the POD file has not been loaded, it will be loaded and placed in the resource cache.
+ */
+-(void) addAnimationFromPODFile: (NSString*) podFilePath asTrack: (GLuint) trackID;
+
+/**
+ * Adds the animation contained in the specified POD file to this node and all its descendants.
+ * The animation is added in a new track, whose ID is returned from this method.
+ *
+ * If the specified POD file has already been loaded, it is retrieved from the resource cache.
+ * If the POD file has not been loaded, it will be loaded and placed in the resource cache.
+ */
+-(GLuint) addAnimationFromPODFile: (NSString*) podFilePath;
+
+@end
+

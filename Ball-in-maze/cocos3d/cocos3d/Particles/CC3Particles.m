@@ -1,9 +1,9 @@
 /*
  * CC3Particles.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,9 +30,8 @@
  */
 
 #import "CC3Particles.h"
-#import "CC3VertexArrayMesh.h"
+#import "CC3UtilityMeshNodes.h"
 #import "CC3CC2Extensions.h"
-#import "CC3IOSExtensions.h"
 #import "CC3Scene.h"
 #import <objc/runtime.h>
 
@@ -45,111 +44,88 @@
 -(void) processUpdateAfterTransform: (CC3NodeUpdatingVisitor*) visitor;
 @end
 
-@interface CC3ParticleEmitter (TemplateMethods)
--(void) checkDuration: (ccTime) dt;
--(void) checkEmission: (ccTime) dt;
--(BOOL) ensureParticleCapacityFor: (id<CC3ParticleProtocol>) aParticle;
--(void) addNewParticle: (id<CC3ParticleProtocol>) aParticle;
--(void) acceptParticle: (id<CC3ParticleProtocol>) aParticle;
--(void) updateParticlesBeforeTransform: (CC3NodeUpdatingVisitor*) visitor;
--(void) updateParticlesAfterTransform: (CC3NodeUpdatingVisitor*) visitor;
--(void) finalizeAndRemoveParticle: (id<CC3ParticleProtocol>) aParticle atIndex: (NSUInteger) anIndex;
--(void) removeParticle: (id<CC3ParticleProtocol>) aParticle atIndex: (NSUInteger) anIndex;
-@end
-
 @implementation CC3ParticleEmitter
 
-@synthesize particles, particleCount;
-@synthesize maximumParticleCapacity, particleCapacityExpansionIncrement;
-@synthesize emissionDuration, emissionInterval, elapsedTime;
-@synthesize isEmitting, shouldRemoveOnFinish;
-@synthesize shouldUpdateParticlesBeforeTransform, shouldUpdateParticlesAfterTransform;
-
--(void) dealloc {
-	[particles release];
-	[particleNavigator release];
-	particleClass = nil;		// not retained
-	[super dealloc];
-}
+@synthesize particles=_particles, particleCount=_particleCount;
+@synthesize currentParticleCapacity=_currentParticleCapacity;
+@synthesize maximumParticleCapacity=_maximumParticleCapacity;
+@synthesize particleCapacityExpansionIncrement=_particleCapacityExpansionIncrement;
+@synthesize emissionDuration=_emissionDuration, emissionInterval=_emissionInterval;
+@synthesize isEmitting=_isEmitting, elapsedTime=_elapsedTime, shouldRemoveOnFinish=_shouldRemoveOnFinish;
+@synthesize shouldUpdateParticlesBeforeTransform=_shouldUpdateParticlesBeforeTransform;
+@synthesize shouldUpdateParticlesAfterTransform=_shouldUpdateParticlesAfterTransform;
 
 -(Protocol*) requiredParticleProtocol { return @protocol(CC3ParticleProtocol); }
 
--(Class) particleClass { return particleClass; }
+-(Class) particleClass { return _particleClass; }
 
 // Ensure that the particle class supports the requiredParticleProtocol of both this emitter and the navigator.
 -(void) setParticleClass: (Class) aParticleClass {
-	NSAssert3(!aParticleClass || [aParticleClass conformsToProtocol: self.requiredParticleProtocol],
+	CC3Assert(!aParticleClass || [aParticleClass conformsToProtocol: self.requiredParticleProtocol],
 			  @"%@ does not conform to the %@ protocol. All particles emitted by %@ must conform to that protocol.", aParticleClass,
 			  [NSString stringWithUTF8String: protocol_getName(self.requiredParticleProtocol)], self);
-	NSAssert3(!aParticleClass || !particleNavigator || [aParticleClass conformsToProtocol: particleNavigator.requiredParticleProtocol],
+	CC3Assert(!aParticleClass || !_particleNavigator || [aParticleClass conformsToProtocol: _particleNavigator.requiredParticleProtocol],
 			  @"%@ does not conform to the %@ protocol. All particles configured by %@ must conform to that protocol.", aParticleClass,
-			  [NSString stringWithUTF8String: protocol_getName(particleNavigator.requiredParticleProtocol)], particleNavigator);
-	particleClass = aParticleClass;
+			  [NSString stringWithUTF8String: protocol_getName(_particleNavigator.requiredParticleProtocol)], _particleNavigator);
+	_particleClass = aParticleClass;
 }
 
--(CC3ParticleNavigator*) particleNavigator { return particleNavigator; }
+-(CC3ParticleNavigator*) particleNavigator { return _particleNavigator; }
 
 -(void) setParticleNavigator: (CC3ParticleNavigator*) aNavigator {
-	NSAssert3(!particleClass || !aNavigator || [particleClass conformsToProtocol: aNavigator.requiredParticleProtocol],
-			  @"%@ does not conform to the %@ protocol. All particles configured by %@ must conform to that protocol.", particleClass,
+	if (aNavigator == _particleNavigator) return;
+
+	CC3Assert(!_particleClass || !aNavigator || [_particleClass conformsToProtocol: aNavigator.requiredParticleProtocol],
+			  @"%@ does not conform to the %@ protocol. All particles configured by %@ must conform to that protocol.", _particleClass,
 			  [NSString stringWithUTF8String: protocol_getName(aNavigator.requiredParticleProtocol)], aNavigator);
-	if (aNavigator != particleNavigator) {
-		particleNavigator.emitter = nil;
-		[particleNavigator release];
-		particleNavigator = [aNavigator retain];
-		particleNavigator.emitter = self;
-	}
+	_particleNavigator.emitter = nil;
+	_particleNavigator = aNavigator;
+	_particleNavigator.emitter = self;
 }
 
--(BOOL) isFull { return (particleCount == maximumParticleCapacity); }
+-(BOOL) isFull { return (_particleCount == _maximumParticleCapacity); }
 
--(ccTime) emissionInterval { return emissionInterval; }
+-(ccTime) emissionInterval { return _emissionInterval; }
 
 -(void) setEmissionInterval: (ccTime) anInterval {
-	emissionInterval = MAX(anInterval, 0.0);		// Force it to non-negative.
+	_emissionInterval = MAX(anInterval, 0.0);		// Force it to non-negative.
 }
 
 -(GLfloat) emissionRate {
 	// Handle special cases first
-	if (emissionInterval <= 0.0f) return kCC3ParticleInfiniteEmissionRate;
-	if (emissionInterval == kCC3ParticleInfiniteInterval) return 0.0f;
+	if (_emissionInterval <= 0.0f) return kCC3ParticleInfiniteEmissionRate;
+	if (_emissionInterval == kCC3ParticleInfiniteInterval) return 0.0f;
 
-	return 1.0f / emissionInterval;
+	return 1.0f / _emissionInterval;
 }
 
 -(void) setEmissionRate: (GLfloat) aRatePerSecond {
 	// Handle special cases first
-	if (aRatePerSecond <= 0.0f) {
-		emissionInterval = kCC3ParticleInfiniteInterval;
-	}
-	if (aRatePerSecond == kCC3ParticleInfiniteEmissionRate) {
-		emissionInterval = 0.0f;
-	}
-	emissionInterval = 1.0f / aRatePerSecond;
+	if (aRatePerSecond <= 0.0f) _emissionInterval = kCC3ParticleInfiniteInterval;
+	if (aRatePerSecond == kCC3ParticleInfiniteEmissionRate) _emissionInterval = 0.0f;
+	_emissionInterval = 1.0f / aRatePerSecond;
 }
 
 
 #pragma mark Allocation and initialization
 
--(NSUInteger) currentParticleCapacity { return particles.capacity; }
-
 -(id) initWithTag: (GLuint) aTag withName: (NSString*) aName {
 	if ( (self = [super initWithTag: aTag withName: aName]) ) {
-		particles = [[CCArray arrayWithZeroCapacity] retain];	// Grows dynamically
-		particleNavigator = nil;
-		maximumParticleCapacity = kCC3ParticlesNoMax;
-		particleCapacityExpansionIncrement = 100;
-		particleCount = 0;
-		emissionDuration = kCC3ParticleInfiniteInterval;
-		emissionInterval = kCC3ParticleInfiniteInterval;
-		elapsedTime = 0.0f;
-		timeSinceEmission = 0.0f;
-		shouldRemoveOnFinish = NO;
-		isEmitting = NO;
-		wasStarted = NO;
-		shouldUpdateParticlesBeforeTransform = YES;
-		shouldUpdateParticlesAfterTransform = NO;
-		particleClass = nil;
+		_particles = [NSMutableArray array];
+		_particleNavigator = nil;
+		_maximumParticleCapacity = kCC3ParticlesNoMax;
+		_particleCapacityExpansionIncrement = 100;
+		_particleCount = 0;
+		_emissionDuration = kCC3ParticleInfiniteInterval;
+		_emissionInterval = kCC3ParticleInfiniteInterval;
+		_elapsedTime = 0.0f;
+		_timeSinceEmission = 0.0f;
+		_shouldRemoveOnFinish = NO;
+		_isEmitting = NO;
+		_wasStarted = NO;
+		_shouldUpdateParticlesBeforeTransform = YES;
+		_shouldUpdateParticlesAfterTransform = NO;
+		_particleClass = nil;
 	}
 	return self;
 }
@@ -158,28 +134,28 @@
 -(void) populateFrom: (CC3ParticleEmitter*) another {
 	[super populateFrom: another];
 
-	self.mesh = nil;										// Emitters can't share meshes
-	self.vertexContentTypes = another.vertexContentTypes;	// Use setter to establish a new mesh
-	self.particleNavigator = [another.particleNavigator autoreleasedCopy];	// Use setter to retain & link back
+	self.mesh = nil;											// Emitters can't share meshes
+	self.vertexContentTypes = another.vertexContentTypes;		// Use setter to establish a new mesh
+	self.particleNavigator = [another.particleNavigator copy];	// Use setter to retain & link back
 	
-	maximumParticleCapacity = another.maximumParticleCapacity;
-	particleCapacityExpansionIncrement = another.particleCapacityExpansionIncrement;
-	emissionInterval = another.emissionInterval;
-	emissionDuration = another.emissionDuration;
-	shouldRemoveOnFinish = another.shouldRemoveOnFinish;
-	shouldUpdateParticlesBeforeTransform = another.shouldUpdateParticlesBeforeTransform;
-	shouldUpdateParticlesAfterTransform = another.shouldUpdateParticlesAfterTransform;
+	_maximumParticleCapacity = another.maximumParticleCapacity;
+	_particleCapacityExpansionIncrement = another.particleCapacityExpansionIncrement;
+	_emissionInterval = another.emissionInterval;
+	_emissionDuration = another.emissionDuration;
+	_shouldRemoveOnFinish = another.shouldRemoveOnFinish;
+	_shouldUpdateParticlesBeforeTransform = another.shouldUpdateParticlesBeforeTransform;
+	_shouldUpdateParticlesAfterTransform = another.shouldUpdateParticlesAfterTransform;
 	self.particleClass = another.particleClass;
 }
 
 -(NSString*) fullDescription {
 	return [NSString stringWithFormat: @"%@ is %@emitting %u of %@ particles every %@ ms for %.1f of %@ seconds, and will expand by %u at %u particles",
-			[self class], (isEmitting ? @"" : @"not "), particleCount,
-			(maximumParticleCapacity == kCC3ParticlesNoMax ? @"endless" : [NSString stringWithFormat: @"%u", maximumParticleCapacity]),
-			(emissionInterval == kCC3ParticleInfiniteInterval ? @"endless" : [NSString stringWithFormat: @"%.1f", emissionInterval * 1000.0f]),
-			elapsedTime,
-			(emissionDuration == kCC3ParticleInfiniteInterval ? @"endless" : [NSString stringWithFormat: @"%.1f", emissionDuration]),
-			particleCapacityExpansionIncrement, (self.currentParticleCapacity + 1)];
+			[self class], (_isEmitting ? @"" : @"not "), _particleCount,
+			(_maximumParticleCapacity == kCC3ParticlesNoMax ? @"endless" : [NSString stringWithFormat: @"%u", _maximumParticleCapacity]),
+			(_emissionInterval == kCC3ParticleInfiniteInterval ? @"endless" : [NSString stringWithFormat: @"%.1f", _emissionInterval * 1000.0f]),
+			_elapsedTime,
+			(_emissionDuration == kCC3ParticleInfiniteInterval ? @"endless" : [NSString stringWithFormat: @"%.1f", _emissionDuration]),
+			_particleCapacityExpansionIncrement, (self.currentParticleCapacity + 1)];
 }
 
 
@@ -198,7 +174,7 @@
 	// If configured to update particles before the node is transformed, do so here.
 	// For each particle, invoke the updateBeforeTransform: method. 
 	// Particles can also be removed during the update process.
-	if (shouldUpdateParticlesBeforeTransform) [self updateParticlesBeforeTransform: visitor];
+	if (_shouldUpdateParticlesBeforeTransform) [self updateParticlesBeforeTransform: visitor];
 	
 	// If emitting and it's time to quit emitting, do so.
 	// Otherwise check if it's time to emit particles.
@@ -212,8 +188,8 @@
  */
 -(void) updateParticlesBeforeTransform: (CC3NodeUpdatingVisitor*) visitor {
 	GLint i = 0;
-	while (i < particleCount) {
-		id<CC3ParticleProtocol> p = [particles objectAtIndex: i];
+	while (i < _particleCount) {
+		id<CC3ParticleProtocol> p = [_particles objectAtIndex: i];
 		
 		[p updateBeforeTransform: visitor];
 		
@@ -229,9 +205,9 @@
 
 /** Template method that checks if its time to quit emitting. */
 -(void) checkDuration: (ccTime) dt {
-	if (isEmitting && (emissionDuration != kCC3ParticleInfiniteInterval)) {
-		elapsedTime += dt;
-		if (elapsedTime >= emissionDuration) [self pause];
+	if (_isEmitting && (_emissionDuration != kCC3ParticleInfiniteInterval)) {
+		_elapsedTime += dt;
+		if (_elapsedTime >= _emissionDuration) [self pause];
 	}
 }
 
@@ -240,23 +216,20 @@
  * and if so, invokes the emitParticle method to emit the particle.
  */
 -(void) checkEmission: (ccTime) dt {
-	if (isEmitting) {
-		timeSinceEmission += dt;
-		while ( !self.isFull && (timeSinceEmission >= emissionInterval) ) {
-			timeSinceEmission -= emissionInterval;
-			[self emitParticle];
-		}
+	if ( !_isEmitting ) return;
+	_timeSinceEmission += dt;
+	while ( !self.isFull && (_timeSinceEmission >= _emissionInterval) ) {
+		_timeSinceEmission -= _emissionInterval;
+		[self emitParticle];
 	}
 }
 
 
 #pragma mark Emitting particles
 
--(NSUInteger) emitParticles: (NSUInteger) count {
-	NSUInteger emitCount = 0;
-	for (NSUInteger i = 0; i < count; i++) {
-		if ( [self emitParticle] ) emitCount++;
-	}
+-(GLuint) emitParticles: (GLuint) count {
+	GLuint emitCount = 0;
+	for (GLuint i = 0; i < count; i++) if ( [self emitParticle] ) emitCount++;
 	return emitCount;
 }
 
@@ -267,11 +240,11 @@
 
 /** Template method to create a new particle, or reuse an existing expired particle. */
 -(id<CC3ParticleProtocol>) acquireParticle {
-	if (particleCount < particles.count) {
-		LogTrace(@"%@ reusing particle at %i", self, particleCount);
-		return [particles objectAtIndex: particleCount];
+	if (_particleCount < _particles.count) {
+		LogTrace(@"%@ reusing particle at %i", self, _particleCount);
+		return [_particles objectAtIndex: _particleCount];
 	} else {
-		LogTrace(@"%@ creating new particle at %i", self, particleCount);
+		LogTrace(@"%@ creating new particle at %i", self, _particleCount);
 		return [self makeParticle];
 	}
 }
@@ -279,12 +252,12 @@
 -(BOOL) emitParticle: (id<CC3ParticleProtocol>) aParticle {
 	if ( !aParticle || self.isFull ) return NO;		// Can't add particles if there's no space
 
-	NSAssert3([aParticle conformsToProtocol: self.requiredParticleProtocol],
+	CC3Assert([aParticle conformsToProtocol: self.requiredParticleProtocol],
 			  @"%@ does not conform to the %@ protocol. All particles emitted by %@ must conform to that protocol.", aParticle,
 			  [NSString stringWithUTF8String: protocol_getName(self.requiredParticleProtocol)], self);
-	NSAssert3(!particleNavigator || [aParticle conformsToProtocol: particleNavigator.requiredParticleProtocol],
+	CC3Assert(!_particleNavigator || [aParticle conformsToProtocol: _particleNavigator.requiredParticleProtocol],
 			  @"%@ does not conform to the %@ protocol. All particles configured by %@ must conform to that protocol.", aParticle,
-			  [NSString stringWithUTF8String: protocol_getName(particleNavigator.requiredParticleProtocol)], particleNavigator);
+			  [NSString stringWithUTF8String: protocol_getName(_particleNavigator.requiredParticleProtocol)], _particleNavigator);
 	
 	// Ensure that we have capacity for this particle, and add the particle to the living
 	// particles, which also attaches the emitter to the particle.
@@ -293,7 +266,7 @@
 
 	aParticle.isAlive = YES;
 	[self initializeParticle: aParticle];
-	if (aParticle.isAlive) [particleNavigator initializeParticle: aParticle];
+	if (aParticle.isAlive) [_particleNavigator initializeParticle: aParticle];
 	if (aParticle.isAlive) [aParticle initializeParticle];
 	
 	// If particle not aborted during initialization, accept it.
@@ -305,11 +278,13 @@
 /** Ensures space has been allocated for the specified particle. */
 -(BOOL) ensureParticleCapacityFor: (id<CC3ParticleProtocol>) aParticle {
 	if (aParticle.emitter == self) return YES;			// Reusing a particle so we're good
-	
-	NSUInteger currCap = self.currentParticleCapacity;
-	if (particleCount == currCap) {
-		NSUInteger newCap = MIN(currCap + self.particleCapacityExpansionIncrement, self.maximumParticleCapacity);
-		return [particles setCapacity: newCap];
+
+	// If we are at current capacity, see if we can expand
+	if (_particleCount == _currentParticleCapacity) {
+		GLuint origCap = _currentParticleCapacity;
+		_currentParticleCapacity = MIN(_currentParticleCapacity + _particleCapacityExpansionIncrement,
+									   _maximumParticleCapacity);
+		return (_currentParticleCapacity > origCap);	// Return if current capacity actually was increased
 	}
 	return YES;
 }
@@ -322,16 +297,12 @@
 -(void) addNewParticle: (id<CC3ParticleProtocol>) aParticle {
 	if (aParticle.emitter == self) return;			// Reusing a particle so we're good
 
-	// Avoid expanding unless necessary, by removing an expired particle if we're at capacity. This allows
-	// us to efficiently reuse expired particles, while allowing new particles to be injected from outside.
-	if (particles.count == particles.capacity && particleCount < particles.count) [particles removeLastObject];
-	[particles insertObject: aParticle atIndex: particleCount];
-	
+	[_particles insertObject: aParticle atIndex: _particleCount];
 	aParticle.emitter = self;
 }
 
 /** Template method to create a new particle using the particleClass property. */
--(id<CC3ParticleProtocol>) makeParticle { return [particleClass particle]; }
+-(id<CC3ParticleProtocol>) makeParticle { return [_particleClass particle]; }
 
 -(void) initializeParticle: (id<CC3ParticleProtocol>) aParticle {}
 
@@ -341,7 +312,7 @@
  * This implementation simply increments the particleCount property. Subclasses may override
  * to perform additional activity to accept the particle.
  */
--(void) acceptParticle: (id<CC3ParticleProtocol>) aParticle { particleCount++; }
+-(void) acceptParticle: (id<CC3ParticleProtocol>) aParticle { _particleCount++; }
 
 /** Update the particles after the transform, and then update the mesh node.  */
 -(void) processUpdateAfterTransform: (CC3NodeUpdatingVisitor*) visitor {
@@ -349,7 +320,7 @@
 	// If configured to update particles after the node is transformed, do so here.
 	// For each particle, invoke the updateBeforeTransform: method. 
 	// Particles can also be removed during the update process.
-	if (shouldUpdateParticlesAfterTransform) [self updateParticlesAfterTransform: visitor];
+	if (_shouldUpdateParticlesAfterTransform) [self updateParticlesAfterTransform: visitor];
 	
 	// If emission has stopped and all the particles have been killed off and the
 	// emitter should be removed when finished, remove the emitter from its parent.
@@ -367,8 +338,8 @@
  */
 -(void) updateParticlesAfterTransform: (CC3NodeUpdatingVisitor*) visitor {
 	GLint i = 0;
-	while (i < particleCount) {
-		id<CC3ParticleProtocol> p = [particles objectAtIndex: i];
+	while (i < _particleCount) {
+		id<CC3ParticleProtocol> p = [_particles objectAtIndex: i];
 		
 		[p updateAfterTransform: visitor];
 		
@@ -384,12 +355,12 @@
 
 /** If transitioning to emitting from not, mark as such and reset timers. */
 -(void) setIsEmitting: (BOOL) shouldEmit {
-	if (!isEmitting && shouldEmit) {
-		elapsedTime = 0.0;
-		timeSinceEmission = 0.0;
-		wasStarted = YES;
+	if (!_isEmitting && shouldEmit) {
+		_elapsedTime = 0.0;
+		_timeSinceEmission = 0.0;
+		_wasStarted = YES;
 	}
-	isEmitting = shouldEmit;
+	_isEmitting = shouldEmit;
 }
 
 -(void) play { self.isEmitting = YES; }
@@ -399,29 +370,29 @@
 -(void) stop {
 	[self pause];						// Stop emitting particles...
 	[self removeAllParticles];			// ...and kill those already emitted.
-	[particles removeAllObjects];
+	[_particles removeAllObjects];
 }
 
--(BOOL) isActive { return isEmitting || particleCount > 0; }
+-(BOOL) isActive { return self.isEmitting || _particleCount > 0; }
 
 // Check for wasStarted needed so it doesn't indicate finished before it starts.
 // Otherwise, auto-remove would cause the emitter to be removed immediately.
--(BOOL) isFinished { return wasStarted && !self.isActive; }
+-(BOOL) isFinished { return _wasStarted && !self.isActive; }
 
 
 #pragma mark Accessing particles
 
--(id<CC3ParticleProtocol>) particleAt: (NSUInteger) aParticleIndex {
-	return [particles objectAtIndex: aParticleIndex];
+-(id<CC3ParticleProtocol>) particleAt: (GLuint) aParticleIndex {
+	return [_particles objectAtIndex: aParticleIndex];
 }
 
 -(id<CC3ParticleProtocol>) particleWithVertexAt: (GLuint) vtxIndex {
-	NSAssert1(NO, @"%@ subclass must implement the particleWithVertexAt: method!", self);
+	CC3Assert(NO, @"%@ subclass must implement the particleWithVertexAt: method!", self);
 	return nil;
 }
 
 -(id<CC3ParticleProtocol>) particleWithVertexIndexAt: (GLuint) index {
-	NSAssert1(NO, @"%@ subclass must implement the particleWithVertexIndexAt: method!", self);
+	CC3Assert(NO, @"%@ subclass must implement the particleWithVertexIndexAt: method!", self);
 	return nil;
 }
 
@@ -430,8 +401,8 @@
 }
 
 -(void) removeParticle: (id<CC3ParticleProtocol>) aParticle {
-	NSUInteger pIdx = [particles indexOfObjectIdenticalTo: aParticle];
-	if (pIdx < particleCount) {
+	GLuint pIdx = (GLuint)[_particles indexOfObjectIdenticalTo: aParticle];
+	if (pIdx < _particleCount) {
 		aParticle.isAlive = NO;
 		[self finalizeAndRemoveParticle: aParticle atIndex: pIdx];
 	}
@@ -442,7 +413,7 @@
  * particle may be removed to create space, which can result in its deallocation if this emitter
  * is all that is holding onto it.
  */
--(void) finalizeAndRemoveParticle: (id<CC3ParticleProtocol>) aParticle atIndex: (NSUInteger) anIndex {
+-(void) finalizeAndRemoveParticle: (id<CC3ParticleProtocol>) aParticle atIndex: (GLuint) anIndex {
 	[aParticle finalizeParticle];
 	[self removeParticle: aParticle atIndex: anIndex];
 }
@@ -453,18 +424,18 @@
  * This basic implementation simply decrements the particleCount. Subclasses will define behaviour
  * for removing the particle from the particles collection, and for moving the underlying vertex content.
  */
--(void) removeParticle: (id<CC3ParticleProtocol>) aParticle atIndex: (NSUInteger) anIndex {
-	particleCount--;
+-(void) removeParticle: (id<CC3ParticleProtocol>) aParticle atIndex: (GLuint) anIndex {
+	_particleCount--;
 }
 
 -(void) removeAllParticles {
-	NSUInteger pCnt = self.particleCount;
-	for (NSUInteger pIdx = 0; pIdx < pCnt; pIdx++) {
+	GLuint pCnt = self.particleCount;
+	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++) {
 		id<CC3ParticleProtocol> aParticle = [self particleAt: pIdx];
 		aParticle.isAlive = NO;
 		[aParticle finalizeParticle];
 	}
-	particleCount = 0;
+	_particleCount = 0;
 }
 
 
@@ -493,12 +464,7 @@
 
 @implementation CC3ParticleNavigator
 
-@synthesize emitter;
-
--(void) dealloc {
-	emitter = nil;			// not retained
-	[super dealloc];
-}
+@synthesize emitter=_emitter;
 
 -(Protocol*) requiredParticleProtocol { return @protocol(CC3ParticleProtocol); }
 
@@ -509,12 +475,12 @@
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		emitter = nil;
+		_emitter = nil;
 	}
 	return self;
 }
 
-+(id) navigator { return [[[self alloc] init] autorelease]; }
++(id) navigator { return [[self alloc] init]; }
 
 -(id) copyWithZone: (NSZone*) zone {
 	CC3ParticleNavigator* aCopy = [[[self class] allocWithZone: zone] init];
@@ -534,9 +500,9 @@
 -(void) updateParticleMeshWithVisitor: (CC3NodeUpdatingVisitor*) visitor;
 -(void) updateParticleMeshGLBuffers;
 -(void) addDirtyVertexRange: (NSRange) aRange;
--(void) addDirtyVertex: (NSUInteger) vtxIdx;
+-(void) addDirtyVertex: (GLuint) vtxIdx;
 -(void) addDirtyVertexIndexRange: (NSRange) aRange;
--(void) addDirtyVertexIndex: (NSUInteger) vtxIdx;
+-(void) addDirtyVertexIndex: (GLuint) vtxIdx;
 -(void) clearDirtyVertexRanges;
 -(BOOL) verticesAreDirty;
 -(BOOL) vertexIndicesAreDirty;
@@ -546,41 +512,32 @@
 
 -(Protocol*) requiredParticleProtocol { return @protocol(CC3CommonVertexArrayParticleProtocol); }
 
-/** Overridden to ensure that the mesh is a CC3VertexArrayMesh. */
--(CC3VertexArrayMesh*) mesh { return (CC3VertexArrayMesh*)mesh; }
-
-/** Overridden to ensure that the mesh is a CC3VertexArrayMesh. */
--(void) setMesh: (CC3VertexArrayMesh*) aMesh {
-	NSAssert1(!aMesh || [aMesh isKindOfClass: [CC3VertexArrayMesh class]], @"The mesh of %@ must be of type CC3VertexArrayMesh.", self);
-	super.mesh = aMesh;
-}
-
 
 #pragma mark Allocation and initialization
 
 -(id) initWithTag: (GLuint) aTag withName: (NSString*) aName {
 	if ( (self = [super initWithTag: aTag withName: aName]) ) {
 		[self clearDirtyVertexRanges];
-		wasVertexCapacityChanged = NO;
+		_wasVertexCapacityChanged = NO;
 	}
 	return self;
 }
 
 // Protected properties for copying
--(NSRange) dirtyVertexRange { return dirtyVertexRange; }
--(NSRange) dirtyVertexIndexRange { return dirtyVertexIndexRange; }
+-(NSRange) dirtyVertexRange { return _dirtyVertexRange; }
+-(NSRange) dirtyVertexIndexRange { return _dirtyVertexIndexRange; }
 
 -(void) populateFrom: (CC3CommonVertexArrayParticleEmitter*) another {
 	[super populateFrom: another];
-	dirtyVertexRange = another.dirtyVertexRange;
-	dirtyVertexIndexRange = another.dirtyVertexIndexRange;
+	_dirtyVertexRange = another.dirtyVertexRange;
+	_dirtyVertexIndexRange = another.dirtyVertexIndexRange;
 }
 
 -(NSString*) fullDescription {
 	return [NSString stringWithFormat: @"%@, using %i of %i vertices and %i of %i vertex indices",
 			[super fullDescription],
-			self.vertexCount, ((CC3VertexArrayMesh*)(self.mesh)).allocatedVertexCapacity, 
-			self.vertexIndexCount, ((CC3VertexArrayMesh*)(self.mesh)).allocatedVertexIndexCapacity];
+			self.vertexCount, self.mesh.allocatedVertexCapacity,
+			self.vertexIndexCount, self.mesh.allocatedVertexIndexCapacity];
 }
 
 
@@ -634,7 +591,7 @@
 	if ( ![super ensureParticleCapacityFor: aParticle] ) return NO;
 	
 	GLuint currCap, newRqmt, newCap, partVtxCount, meshVtxCount, meshVtxIdxCount;
-	CC3VertexArrayMesh* vaMesh = self.mesh;
+	CC3Mesh* vaMesh = self.mesh;
 	meshVtxCount = vaMesh.vertexCount;
 
 	// Ensure that the vertex content arrays have room, and if not, expand them.
@@ -643,12 +600,12 @@
 	partVtxCount = aParticle.vertexCount;
 	newRqmt = meshVtxCount + partVtxCount;
 	if (newRqmt > currCap) {		// Needs expansion...so expand by a large chunk
-		if (particleCapacityExpansionIncrement == 0) return NO;		// Oops...can't expand
-		newCap = currCap + (partVtxCount * particleCapacityExpansionIncrement);
+		if (_particleCapacityExpansionIncrement == 0) return NO;		// Oops...can't expand
+		newCap = currCap + (partVtxCount * _particleCapacityExpansionIncrement);
 		vaMesh.allocatedVertexCapacity = newCap;
 		vaMesh.vertexCount = meshVtxCount;							// Leave the vertex count unchanged
 		if (vaMesh.allocatedVertexCapacity != newCap) return NO;	// Expansion failed
-		wasVertexCapacityChanged = YES;
+		_wasVertexCapacityChanged = YES;
 		LogTrace(@"%@ changed capacity to %i vertices", self, vaMesh.allocatedVertexCapacity);
 	}
 
@@ -662,35 +619,36 @@
 		partVtxCount = aParticle.vertexIndexCount;
 		newRqmt = vaMesh.vertexIndexCount + partVtxCount;
 		if (newRqmt > currCap) {		// Needs expansion...so expand by a large chunk
-			if (particleCapacityExpansionIncrement == 0) return NO;			// Oops...can't expand
-			newCap = currCap + (partVtxCount * particleCapacityExpansionIncrement);
+			if (_particleCapacityExpansionIncrement == 0) return NO;			// Oops...can't expand
+			newCap = currCap + (partVtxCount * _particleCapacityExpansionIncrement);
 			meshVtxIdxCount = vaMesh.vertexIndexCount;
 			vaMesh.allocatedVertexIndexCapacity = newCap;
-			vaMesh.vertexIndexCount = meshVtxIdxCount;		// Leave the vertex count unchanged
-			[vaMesh retainVertexIndices];					// Make sure the indices stick around to be modified
+			vaMesh.vertexIndexCount = meshVtxIdxCount;			// Leave the vertex count unchanged
+			vaMesh.vertexIndices.bufferUsage = GL_DYNAMIC_DRAW;	// Make sure to use dynamic draw
+			[vaMesh retainVertexIndices];						// Make sure the indices stick around to be modified
 			if (vaMesh.allocatedVertexIndexCapacity != newCap) return NO;	// Expansion failed
-			wasVertexCapacityChanged = YES;
+			_wasVertexCapacityChanged = YES;
 			LogTrace(@"%@ changed capacity to %i vertex indices", self, vaMesh.allocatedVertexIndexCapacity);
 		}
 	} else if (aParticle.hasVertexIndices) {
 		// The underlying mesh does not yet have vertex indices, but the particle requires them.
 		// Add a new vertex indices array, with enough capacity for one vertex index per vertex,
 		// plus an expansion component.
-		if (particleCapacityExpansionIncrement == 0) return NO;			// Oops...can't expand
+		if (_particleCapacityExpansionIncrement == 0) return NO;			// Oops...can't expand
 		partVtxCount = aParticle.vertexIndexCount;
-		newCap = meshVtxCount + (partVtxCount * particleCapacityExpansionIncrement);
+		newCap = meshVtxCount + (partVtxCount * _particleCapacityExpansionIncrement);
 		meshVtxIdxCount = vaMesh.vertexIndexCount;
 		vaMesh.allocatedVertexIndexCapacity = newCap;
 		vaMesh.vertexIndexCount = meshVtxIdxCount;		// Leave the vertex count unchanged
+		vaMesh.vertexIndices.bufferUsage = GL_DYNAMIC_DRAW;	// Make sure to use dynamic draw
 		[vaMesh retainVertexIndices];					// Make sure the indices stick around to be modified
 		if (vaMesh.allocatedVertexIndexCapacity != newCap) return NO;	// Expansion failed
-		wasVertexCapacityChanged = YES;
+		_wasVertexCapacityChanged = YES;
 		LogTrace(@"%@ created new capacity for %i vertex indices", self, vaMesh.allocatedVertexIndexCapacity);
 
 		// Synthesize vertex indices for the existing vertex content
-		for (GLuint vtxIdx = 0; vtxIdx < meshVtxCount; vtxIdx++) {
+		for (GLuint vtxIdx = 0; vtxIdx < meshVtxCount; vtxIdx++)
 			[vaMesh setVertexIndex: vtxIdx at: vtxIdx];
-		}
 	}
 	
 	return YES;
@@ -701,37 +659,37 @@
  * The result is to form a union of the specified range and the current range.
  */
 -(void) addDirtyVertexRange: (NSRange) aRange {
-	dirtyVertexRange = NSUnionRange(dirtyVertexRange, aRange);
+	_dirtyVertexRange = NSUnionRange(_dirtyVertexRange, aRange);
 }
 
 /**
  * Adds the specified vertex to the range of dirty vertices.
  * The result is to form a union of the specified vertex and the current range.
  */
--(void) addDirtyVertex: (NSUInteger) vtxIdx { [self addDirtyVertexRange: NSMakeRange(vtxIdx, 1)]; }
+-(void) addDirtyVertex: (GLuint) vtxIdx { [self addDirtyVertexRange: NSMakeRange(vtxIdx, 1)]; }
 
 /**
  * Adds the specified range to the range of dirty vertex indices.
  * The result is to form a union of the specified range and the current range.
  */
 -(void) addDirtyVertexIndexRange: (NSRange) aRange {
-	dirtyVertexIndexRange = NSUnionRange(dirtyVertexIndexRange, aRange);
+	_dirtyVertexIndexRange = NSUnionRange(_dirtyVertexIndexRange, aRange);
 }
 
 /**
  * Adds the specified vertex index to the range of dirty vertex indices.
  * The result is to form a union of the specified vertex index and the current range.
  */
--(void) addDirtyVertexIndex: (NSUInteger) vtxIdx { [self addDirtyVertexIndexRange: NSMakeRange(vtxIdx, 1)]; }
+-(void) addDirtyVertexIndex: (GLuint) vtxIdx { [self addDirtyVertexIndexRange: NSMakeRange(vtxIdx, 1)]; }
 
 /** Returns whether any vertices are dirty, by being either expanded or changed. */
--(BOOL) verticesAreDirty { return wasVertexCapacityChanged || (dirtyVertexRange.length > 0); }
+-(BOOL) verticesAreDirty { return _wasVertexCapacityChanged || (_dirtyVertexRange.length > 0); }
 
 /** Returns whether any vertex indices are dirty, by being either expanded or changed. */
--(BOOL) vertexIndicesAreDirty { return wasVertexCapacityChanged || (dirtyVertexIndexRange.length > 0); }
+-(BOOL) vertexIndicesAreDirty { return _wasVertexCapacityChanged || (_dirtyVertexIndexRange.length > 0); }
 
 /** Clears the range of dirty vertices and vertex indices. */
--(void) clearDirtyVertexRanges { dirtyVertexIndexRange = dirtyVertexRange = (NSRange){ 0, 0 }; }
+-(void) clearDirtyVertexRanges { _dirtyVertexIndexRange = _dirtyVertexRange = (NSRange){ 0, 0 }; }
 
 /**
  * Process the transform if the vertices have been changed at all,
@@ -752,7 +710,7 @@
 	[self addDirtyVertexIndexRange: vtxIdxRange];
 	
 	LogTrace(@"%@ accepting particle %@ at %i. Vertex count %i and vertex index count %i",
-			 self, aParticle, particleCount, self.vertexCount, self.vertexIndexCount);
+			 self, aParticle, _particleCount, self.vertexCount, self.vertexIndexCount);
 }
 
 /** Updates the mesh after particles have been updated.  */
@@ -767,11 +725,11 @@
  */
 -(void) updateParticleMeshWithVisitor: (CC3NodeUpdatingVisitor*) visitor {
 	if (self.verticesAreDirty) {
-		LogTrace(@"%@ updating mesh with %i particles", self, particleCount);
+		LogTrace(@"%@ updating mesh with %i particles", self, _particleCount);
 		[self updateParticleMeshGLBuffers];
 		[self markBoundingVolumeDirty];
 		[self clearDirtyVertexRanges];
-		wasVertexCapacityChanged = NO;
+		_wasVertexCapacityChanged = NO;
 	}
 }
 
@@ -781,26 +739,23 @@
  */
 -(void) updateParticleMeshGLBuffers {
 	if (self.isUsingGLBuffers) {
-		CC3VertexArrayMesh* vaMesh = self.mesh;
-		if (wasVertexCapacityChanged) {
+		CC3Mesh* vaMesh = self.mesh;
+		if (_wasVertexCapacityChanged) {
 			[vaMesh deleteGLBuffers];
 			[vaMesh createGLBuffers];
 			LogTrace(@"%@ re-created GL buffers because buffer capacity has changed to %i vertices and %i vertex indices.",
 					 self, vaMesh.allocatedVertexCapacity, vaMesh.allocatedVertexIndexCapacity);
 		} else {
-			[vaMesh updateGLBuffersStartingAt: dirtyVertexRange.location
-									forLength: dirtyVertexRange.length];
+			[vaMesh updateGLBuffersStartingAt: (GLuint)_dirtyVertexRange.location
+									forLength: (GLuint)_dirtyVertexRange.length];
 			
-			if (vaMesh.hasVertexIndices && self.vertexIndicesAreDirty) {
-				[vaMesh.vertexIndices updateGLBufferStartingAt: dirtyVertexIndexRange.location
-													 forLength: dirtyVertexIndexRange.length];
-				LogTrace(@"%@ updated GL buffers for vertex content range (%i, %i) of %i vertices and index range (%i, %i) of %i indices in %i particles",
-						 self, dirtyVertexRange.location, dirtyVertexRange.length, self.vertexCount,
-						 dirtyVertexIndexRange.location, dirtyVertexIndexRange.length, self.vertexIndexCount, particleCount);
-			} else {
-				LogTrace(@"%@ updated GL buffers for vertex content range (%i, %i) of %i vertices in %i particles",
-						 self, dirtyVertexRange.location, dirtyVertexRange.length, self.vertexCount, particleCount);
-			}
+			if (vaMesh.hasVertexIndices && self.vertexIndicesAreDirty)
+				[vaMesh.vertexIndices updateGLBufferStartingAt: (GLuint)_dirtyVertexIndexRange.location
+													 forLength: (GLuint)_dirtyVertexIndexRange.length];
+
+			LogTrace(@"%@ updated vertex content GL buffer (ID %i) range (%i, %i) of %i vertices (out of %i allocated as %@) and index GL buffer (ID %i) range (%i, %i) of %i indices (out of %i allocated as %@) for %i particles",
+					 self, vaMesh.vertexLocations.bufferID, _dirtyVertexRange.location, _dirtyVertexRange.length, self.vertexCount, vaMesh.allocatedVertexCapacity, NSStringFromGLEnum(vaMesh.vertexLocations.bufferUsage),
+					 vaMesh.vertexIndices.bufferID, _dirtyVertexIndexRange.location, _dirtyVertexIndexRange.length, self.vertexIndexCount, vaMesh.allocatedVertexIndexCapacity, NSStringFromGLEnum(vaMesh.vertexIndices.bufferUsage), _particleCount);
 		}
 	} else {
 		LogTrace(@"%@ not updating GL buffers because they are not in use for this mesh.", self);
@@ -810,13 +765,13 @@
 
 #pragma mark Accessing particles
 
--(id<CC3CommonVertexArrayParticleProtocol>) commonVertexArrayParticleAt: (NSUInteger) aParticleIndex {
+-(id<CC3CommonVertexArrayParticleProtocol>) commonVertexArrayParticleAt: (GLuint) aParticleIndex {
 	return (id<CC3CommonVertexArrayParticleProtocol>)[self particleAt: aParticleIndex];
 }
 
 -(id<CC3ParticleProtocol>) particleWithVertexAt: (GLuint) vtxIndex {
-	NSUInteger pCnt = self.particleCount;
-	for (NSUInteger pIdx = 0; pIdx < pCnt; pIdx++) {
+	GLuint pCnt = self.particleCount;
+	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++) {
 		id<CC3CommonVertexArrayParticleProtocol> cvap = [self commonVertexArrayParticleAt: pIdx];
 		if (NSLocationInRange(vtxIndex, cvap.vertexRange)) return cvap;
 	}
@@ -824,8 +779,8 @@
 }
 
 -(id<CC3ParticleProtocol>) particleWithVertexIndexAt: (GLuint) index {
-	NSUInteger pCnt = self.particleCount;
-	for (NSUInteger pIdx = 0; pIdx < pCnt; pIdx++) {
+	GLuint pCnt = self.particleCount;
+	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++) {
 		id<CC3CommonVertexArrayParticleProtocol> cvap = [self commonVertexArrayParticleAt: pIdx];
 		if (NSLocationInRange(index, cvap.vertexIndexRange)) return cvap;
 	}
@@ -833,7 +788,7 @@
 }
 
 /** Shrinks the mesh vertex count by the vertex count of the particle. */
--(void) removeParticle: (id<CC3CommonVertexArrayParticleProtocol>) aParticle atIndex: (NSUInteger) anIndex {
+-(void) removeParticle: (id<CC3CommonVertexArrayParticleProtocol>) aParticle atIndex: (GLuint) anIndex {
 	[super removeParticle: aParticle atIndex: anIndex];		// Decrements particleCount
 	self.vertexCount -= aParticle.vertexCount;
 	self.vertexIndexCount -= aParticle.vertexIndexCount;
@@ -859,31 +814,26 @@
 
 @implementation CC3ParticleBase
 
-@synthesize emitter;
-
--(void) dealloc {
-	emitter = nil;			// not retained
-	[super dealloc];
-}
+@synthesize emitter=_emitter;
 
 // Alloc iVar in subclases to consolidate storage
 -(BOOL) isAlive {
-	NSAssert1(NO, @"%@ does not implement the isAlive property", self);
+	CC3Assert(NO, @"%@ does not implement the isAlive property", self);
 	return NO;
 }
 
 // Alloc iVar in subclases to consolidate storage
 -(void) setIsAlive: (BOOL) alive {
-	NSAssert1(NO, @"%@ does not implement the isAlive property", self);
+	CC3Assert(NO, @"%@ does not implement the isAlive property", self);
 }
 
 -(CC3Vector) location { return kCC3VectorNull; }
 
 -(void) setLocation: (CC3Vector) aLocation {}
 
--(CC3Vector) globalLocation { return [self.emitter.transformMatrix transformLocation: self.location]; }
+-(CC3Vector) globalLocation { return [self.emitter.globalTransformMatrix transformLocation: self.location]; }
 
--(ccColor4F) color4F { return emitter.diffuseColor; }
+-(ccColor4F) color4F { return _emitter.diffuseColor; }
 
 -(void) setColor4F: (ccColor4F) aColor {}
 
@@ -891,7 +841,7 @@
 
 -(void) setColor4B: (ccColor4B) aColor {}
 
--(BOOL) hasColor { return emitter.mesh.hasVertexColors; }
+-(BOOL) hasColor { return _emitter.mesh.hasVertexColors; }
 
 -(void) remove { [self.emitter removeParticle: self]; }
 
@@ -915,6 +865,22 @@
 	self.color4B = c4;
 }
 
+-(ccColor3B) displayedColor { return self.color; }
+
+-(BOOL) isCascadeColorEnabled { return NO; }
+
+-(void) setCascadeColorEnabled:(BOOL)cascadeColorEnabled {}
+
+-(void) updateDisplayedColor: (ccColor3B) color {}
+
+-(GLubyte) displayedOpacity { return self.opacity; }
+
+-(BOOL) isCascadeOpacityEnabled { return NO; }
+
+-(void) setCascadeOpacityEnabled: (BOOL) cascadeOpacityEnabled {}
+
+-(void) updateDisplayedOpacity: (GLubyte) opacity {}
+
 -(NSString*) description { return [NSString stringWithFormat: @"%@", [self class]]; }
 
 - (NSString*) fullDescription {
@@ -935,13 +901,13 @@
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		emitter = nil;
+		_emitter = nil;
 		self.isAlive = NO;
 	}
 	return self;
 }
 
-+(id) particle { return [[[self alloc] init] autorelease]; }
++(id) particle { return [[self alloc] init]; }
 
 -(id) copyWithZone: (NSZone*) zone {
 	CC3ParticleBase* aCopy = [[[self class] allocWithZone: zone] init];
@@ -950,7 +916,7 @@
 }
 
 -(void) populateFrom: (CC3ParticleBase*) another {
-	emitter = another.emitter;
+	_emitter = another.emitter;
 	self.isAlive = another.isAlive;
 }
 

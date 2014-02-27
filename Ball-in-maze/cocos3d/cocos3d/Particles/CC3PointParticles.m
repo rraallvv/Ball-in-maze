@@ -1,9 +1,9 @@
 /*
  * CC3PointParticles.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,7 +30,6 @@
  */
 
 #import "CC3PointParticles.h"
-#import "CC3OpenGLES11Engine.h"
 #import "CCDirector.h"
 
 
@@ -45,16 +44,15 @@
 @end
 
 @interface CC3MeshNode (TemplateMethods)
--(void) ensureMaterial;
 -(void) configureDrawingParameters: (CC3NodeDrawingVisitor*) visitor;
 -(void) cleanupDrawingParameters: (CC3NodeDrawingVisitor*) visitor;
 @end
 
 @interface CC3ParticleEmitter (TemplateMethods)
 -(void) updateParticlesBeforeTransform: (CC3NodeUpdatingVisitor*) visitor;
--(void) addDirtyVertex: (NSUInteger) vtxIdx;
--(void) addDirtyVertexIndex: (NSUInteger) vtxIdx;
--(void) removeParticle: (id<CC3ParticleProtocol>) aParticle atIndex: (NSUInteger) anIndex;
+-(void) addDirtyVertex: (GLuint) vtxIdx;
+-(void) addDirtyVertexIndex: (GLuint) vtxIdx;
+-(void) removeParticle: (id<CC3ParticleProtocol>) aParticle atIndex: (GLuint) anIndex;
 -(void) acceptParticle: (id<CC3ParticleProtocol>) aParticle;
 @end
 
@@ -62,53 +60,53 @@
 #pragma mark -
 #pragma mark CC3PointParticleEmitter
 
-@interface CC3PointParticleEmitter (TemplateMethods)
-@property(nonatomic, readonly) BOOL hasIlluminatedNormals;
--(void) configurePointProperties: (CC3NodeDrawingVisitor*) visitor;
--(void) cleanupPointProperties: (CC3NodeDrawingVisitor*) visitor;
--(void) setParticleNormal: (id<CC3PointParticleProtocol>) pointParticle;
--(void) updateParticleNormals: (CC3NodeUpdatingVisitor*) visitor;
--(GLfloat) normalizeParticleSizeToDevice: (GLfloat) aSize;
--(GLfloat) denormalizeParticleSizeFromDevice: (GLfloat) aSize;
-+(GLfloat) deviceScaleFactor;
-@end
-
 @implementation CC3PointParticleEmitter
 
-@synthesize particleSize, particleSizeMinimum, particleSizeMaximum;
-@synthesize shouldSmoothPoints, shouldNormalizeParticleSizesToDevice;
-@synthesize particleSizeAttenuationCoefficients;
+@synthesize particleSize=_particleSize, shouldSmoothPoints=_shouldSmoothPoints;
+@synthesize particleSizeMinimum=_particleSizeMinimum, particleSizeMaximum=_particleSizeMaximum;
+@synthesize particleSizeAttenuation=_particleSizeAttenuation;
+@synthesize shouldNormalizeParticleSizesToDevice=_shouldNormalizeParticleSizesToDevice;
+
+-(GLfloat) normalizedParticleSize {
+	return [self normalizeParticleSizeToDevice: self.particleSize];
+}
+
+-(GLfloat) normalizedParticleSizeMinimum {
+	return [self normalizeParticleSizeToDevice: self.particleSizeMinimum];
+}
+
+-(GLfloat) normalizedParticleSizeMaximum {
+	return [self normalizeParticleSizeToDevice: self.particleSizeMaximum];
+}
+
 
 -(Protocol*) requiredParticleProtocol { return @protocol(CC3PointParticleProtocol); }
 
-/** Overridden to ensure that the mesh is a CC3VertexArrayMesh. */
--(CC3PointParticleMesh*) mesh { return (CC3PointParticleMesh*)mesh; }
+// Deprecated
+-(CC3PointParticleMesh*) particleMesh { return (CC3PointParticleMesh*)self.mesh; }
 
-/** Overridden to ensure that the mesh is a CC3VertexArrayMesh. */
--(void) setMesh: (CC3PointParticleMesh*) aMesh {
-	NSAssert1([aMesh isKindOfClass: [CC3PointParticleMesh class]], @"The mesh of %@ must be of type CC3PointParticleMesh.", self);
-	super.mesh = aMesh;
+// Deprecated property
+-(CC3AttenuationCoefficients) particleSizeAttenuationCoefficients { return self.particleSizeAttenuation; }
+-(void) setParticleSizeAttenuationCoefficients: (CC3AttenuationCoefficients) attenuationCoefficients {
+	self.particleSizeAttenuation = attenuationCoefficients;
 }
 
-// Deprecated
--(CC3PointParticleMesh*) particleMesh { return self.mesh; }
-
 -(GLfloat) unityScaleDistance {
-	GLfloat sqDistAtten = particleSizeAttenuationCoefficients.c;
+	GLfloat sqDistAtten = _particleSizeAttenuation.c;
 	return (sqDistAtten > 0.0f) ? sqrt(1.0 / sqDistAtten) : 0.0f;
 }
 
 -(void) setUnityScaleDistance: (GLfloat) aDistance {
 	if (aDistance > 0.0) {
-		particleSizeAttenuationCoefficients = (CC3AttenuationCoefficients){0.0, 0.0, 1.0 / (aDistance * aDistance)};
+		_particleSizeAttenuation = (CC3AttenuationCoefficients){0.0, 0.0, 1.0 / (aDistance * aDistance)};
 	} else {
-		particleSizeAttenuationCoefficients = kCC3ParticleSizeAttenuationNone;
+		_particleSizeAttenuation = kCC3AttenuationNone;
 	}
 }
 
 // Deprecated
 -(CC3VertexContent) particleContentTypes { return self.vertexContentTypes; }
--(NSUInteger) maxParticles { return self.maximumParticleCapacity; }
+-(GLuint) maxParticles { return self.maximumParticleCapacity; }
 
 
 #pragma mark Vertex management
@@ -123,12 +121,11 @@
 #pragma mark Accessing vertex data
 
 -(GLfloat) particleSizeAt: (GLuint) vtxIndex {
-	CC3PointParticleMesh* pm = self.mesh;
-	return pm ? [self denormalizeParticleSizeFromDevice: [pm vertexPointSizeAt: vtxIndex]] : 0.0f;
+	return _mesh ? [self denormalizeParticleSizeFromDevice: [_mesh vertexPointSizeAt: vtxIndex]] : 0.0f;
 }
 
 -(void) setParticleSize: (GLfloat) aSize at: (GLuint) vtxIndex {
-	[self.mesh setVertexPointSize: [self normalizeParticleSizeToDevice: aSize] at: vtxIndex];
+	[_mesh setVertexPointSize: [self normalizeParticleSizeToDevice: aSize] at: vtxIndex];
 	[self addDirtyVertex: vtxIndex];
 }
 
@@ -149,30 +146,28 @@
 
 -(id) initWithTag: (GLuint) aTag withName: (NSString*) aName {
 	if ( (self = [super initWithTag: aTag withName: aName]) ) {
-		globalCameraLocation = kCC3VectorNull;
-		areParticleNormalsDirty = NO;
+		_globalCameraLocation = kCC3VectorNull;
+		_areParticleNormalsDirty = NO;
 		self.particleSize = kCC3DefaultParticleSize;
-		particleSizeMinimum = kCC3ParticleSizeMinimumNone;
-		particleSizeMaximum = kCC3ParticleSizeMaximumNone;
-		particleSizeAttenuationCoefficients = kCC3ParticleSizeAttenuationNone;
-		shouldSmoothPoints = NO;
-		shouldNormalizeParticleSizesToDevice = YES;
-		shouldDisableDepthMask = YES;
+		_particleSizeMinimum = kCC3ParticleSizeMinimumNone;
+		_particleSizeMaximum = kCC3ParticleSizeMaximumNone;
+		_particleSizeAttenuation = kCC3AttenuationNone;
+		_shouldSmoothPoints = NO;
+		_shouldNormalizeParticleSizesToDevice = YES;
+		_shouldDisableDepthMask = YES;
 		[[self class] deviceScaleFactor];	// Force init the static deviceScaleFactor before accessing it.
 		[self ensureMaterial];				// We need blending, so start with a material.
 	}
 	return self;
 }
 
--(void) makeMesh { self.mesh = [CC3PointParticleMesh mesh]; }
-
 /** Overridden to configure for blending. */
--(void) makeMaterial {
+-(CC3Material*) makeMaterial {
 	CC3Material* mat = [CC3Material material];
 	mat.diffuseColor = kCCC4FWhite;
 	mat.sourceBlend = GL_SRC_ALPHA;
 	mat.destinationBlend = GL_ONE_MINUS_SRC_ALPHA;
-	self.material = mat;
+	return mat;
 }
 
 // Implementation of deprecated method, for other deprecated methods to invoke
@@ -215,12 +210,12 @@
 -(void) populateFrom: (CC3PointParticleEmitter*) another {
 	[super populateFrom: another];
 	
-	particleSize = another.particleSize;
-	particleSizeMinimum = another.particleSizeMinimum;
-	particleSizeMaximum = another.particleSizeMaximum;
-	shouldSmoothPoints = another.shouldSmoothPoints;
-	shouldNormalizeParticleSizesToDevice = another.shouldNormalizeParticleSizesToDevice;
-	particleSizeAttenuationCoefficients = another.particleSizeAttenuationCoefficients;
+	_particleSize = another.particleSize;
+	_particleSizeMinimum = another.particleSizeMinimum;
+	_particleSizeMaximum = another.particleSizeMaximum;
+	_shouldSmoothPoints = another.shouldSmoothPoints;
+	_shouldNormalizeParticleSizesToDevice = another.shouldNormalizeParticleSizesToDevice;
+	_particleSizeAttenuation = another.particleSizeAttenuation;
 }
 
 
@@ -230,10 +225,10 @@
 	[super initializeParticle: aPointParticle];
 	
 	// particleCount not yet incremented, so it points to this particle
-	aPointParticle.particleIndex = particleCount;
+	aPointParticle.particleIndex = _particleCount;
 
 	// Set the particle size directly so the CC3PointParticleProtocol does not need to support size
-	[self setParticleSize: self.particleSize at: particleCount];
+	[self setParticleSize: self.particleSize at: _particleCount];
 }
 
 /** Marks the range of vertices in the underlying mesh that are affected by this particle. */
@@ -243,18 +238,18 @@
 }
 
 /** Returns whether this mesh is making use of normals and lighting. */
--(BOOL) hasIlluminatedNormals { return mesh && mesh.hasVertexNormals && self.shouldUseLighting; }
+-(BOOL) hasIlluminatedNormals { return _mesh && _mesh.hasVertexNormals && self.shouldUseLighting; }
 
 -(void) transformMatrixChanged {
 	[super transformMatrixChanged];
-	areParticleNormalsDirty = YES;
+	_areParticleNormalsDirty = YES;
 }
 
 -(void) nodeWasTransformed: (CC3Node*) aNode {
 	[super nodeWasTransformed: aNode];
 	if (aNode.isCamera) {
-		globalCameraLocation = aNode.globalLocation;
-		areParticleNormalsDirty = YES;
+		_globalCameraLocation = aNode.globalLocation;
+		_areParticleNormalsDirty = YES;
 	}
 }
 
@@ -275,24 +270,22 @@
 	if (self.hasIlluminatedNormals) {
 		// If we haven't already registered as a camera listener, do so now.
 		// Get the current cam location, because cam might not immediately callback.
-		if (CC3VectorIsNull(globalCameraLocation)) {
+		if (CC3VectorIsNull(_globalCameraLocation)) {
 			CC3Camera* cam = self.activeCamera;
-			globalCameraLocation = cam.globalLocation;
+			_globalCameraLocation = cam.globalLocation;
 			[cam addTransformListener: self];
 			LogTrace(@"%@ registered as listener of camera at %@",
-						  self, NSStringFromCC3Vector(globalCameraLocation));
+						  self, NSStringFromCC3Vector(_globalCameraLocation));
 		}
 
-		if (areParticleNormalsDirty) {
+		if (_areParticleNormalsDirty) {
 			LogTrace(@"%@ updating particle normals from camera location %@",
-						  self, NSStringFromCC3Vector(globalCameraLocation));
+						  self, NSStringFromCC3Vector(_globalCameraLocation));
 			
 			// Get the direction to the camera and transform it to local coordinates
-			CC3Vector camDir = CC3VectorDifference(globalCameraLocation, self.globalLocation);
-			camDir = [self.transformMatrixInverted transformDirection: camDir];
-			for (id<CC3PointParticleProtocol> p in particles) {
-				[p pointNormalAt: camDir];
-			}
+			CC3Vector camDir = CC3VectorDifference(_globalCameraLocation, self.globalLocation);
+			camDir = [self.globalTransformMatrixInverted transformDirection: camDir];
+			for (id<CC3PointParticleProtocol> p in _particles) [p pointNormalAt: camDir];
 		}
 	}
 }
@@ -309,8 +302,8 @@
  */
 -(void) setParticleNormal: (id<CC3PointParticleProtocol>) pointParticle {
 	if (self.hasIlluminatedNormals) {
-		CC3Vector camDir = CC3VectorDifference(globalCameraLocation, self.globalLocation);
-		camDir = [self.transformMatrixInverted transformDirection: camDir];
+		CC3Vector camDir = CC3VectorDifference(_globalCameraLocation, self.globalLocation);
+		camDir = [self.globalTransformMatrixInverted transformDirection: camDir];
 		[pointParticle pointNormalAt: camDir];
 	}
 }
@@ -318,7 +311,7 @@
 
 #pragma mark Accessing particles
 
--(id<CC3PointParticleProtocol>) pointParticleAt: (NSUInteger) aParticleIndex {
+-(id<CC3PointParticleProtocol>) pointParticleAt: (GLuint) aParticleIndex {
 	return (id<CC3PointParticleProtocol>)[self particleAt: aParticleIndex];
 }
 
@@ -330,21 +323,21 @@
  * The previously-last particle is now in the slot that the removed particle was taken from,
  * and vice-versa. Update their indices, and move the underlying vertex data.
  */
--(void) removeParticle: (id<CC3PointParticleProtocol>) aParticle atIndex: (NSUInteger) anIndex {
+-(void) removeParticle: (id<CC3PointParticleProtocol>) aParticle atIndex: (GLuint) anIndex {
 	[super removeParticle: aParticle atIndex: anIndex];		// Decrements particleCount and vertexCount
 	
 	// Get the last living particle
-	id<CC3PointParticleProtocol> lastParticle = [self pointParticleAt: particleCount];
+	id<CC3PointParticleProtocol> lastParticle = [self pointParticleAt: _particleCount];
 	
 	// Swap the particles in the particles array
-	[particles exchangeObjectAtIndex: anIndex withObjectAtIndex: particleCount];
+	[_particles exchangeObjectAtIndex: anIndex withObjectAtIndex: _particleCount];
 	
 	// Update the particle's index. This also updates the vertex indices array, if it exists.
-	aParticle.particleIndex = particleCount;
+	aParticle.particleIndex = _particleCount;
 	lastParticle.particleIndex = anIndex;
 	
 	// Update the underlying mesh
-	[self.mesh copyVertices: 1 from: particleCount to: anIndex];
+	[self.mesh copyVertices: 1 from: _particleCount to: anIndex];
 	
 	// Mark the vertex and vertex indices as dirty
 	[self addDirtyVertex: anIndex];
@@ -365,27 +358,23 @@
  * and set GL point size, size attenuation and smoothing.
  */
 -(void) configurePointProperties: (CC3NodeDrawingVisitor*) visitor {
-	CC3OpenGLES11Engine* gles11Engine = [CC3OpenGLES11Engine engine];
-	CC3OpenGLES11State* gles11State = gles11Engine.state;
+	CC3OpenGL* gl = visitor.gl;
 
-	// Enable point sprites
-	[gles11Engine.serverCapabilities.pointSprites enable];
+	// Enable point sprites and shader point sizing (gl_PointSize) for OGL
+	[gl enablePointSprites: YES];
+	[gl enableShaderPointSize: YES];
 
 	// Enable texture coordinate replacing in each texture unit used by the material.
-	GLuint texCount = material ? material.textureCount : 0;
-	for (GLuint texUnit = 0; texUnit < texCount; texUnit++) {
-		[[gles11Engine.textures textureUnitAt: texUnit].pointSpriteCoordReplace enable];
-	}
-
+	GLuint texCount = _material ? _material.textureCount : 0;
+	for (GLuint texUnit = 0; texUnit < texCount; texUnit++)
+		[gl enablePointSpriteCoordReplace: YES at: texUnit];
+	
 	// Set default point size
-	gles11State.pointSize.value = [self normalizeParticleSizeToDevice: particleSize];
-	
-	gles11State.pointSizeMinimum.value = [self normalizeParticleSizeToDevice: particleSizeMinimum];
-	gles11State.pointSizeMaximum.value = [self normalizeParticleSizeToDevice: particleSizeMaximum];
-	
-	// Cast attenuation coefficients to a vector when setting in state tracker
-	gles11State.pointSizeAttenuation.value = *(CC3Vector*)&particleSizeAttenuationCoefficients;
-	gles11Engine.serverCapabilities.pointSmooth.value = shouldSmoothPoints;
+	gl.pointSize = self.normalizedParticleSize;
+	gl.pointSizeMinimum = self.normalizedParticleSizeMinimum;
+	gl.pointSizeMaximum = self.normalizedParticleSizeMaximum;
+	gl.pointSizeAttenuation = _particleSizeAttenuation;
+	[gl enablePointSmoothing: _shouldSmoothPoints];
 }
 
 -(void) cleanupDrawingParameters: (CC3NodeDrawingVisitor*) visitor {
@@ -395,20 +384,19 @@
 
 /** Disable particles again in each texture unit being used by the material. */
 -(void) cleanupPointProperties: (CC3NodeDrawingVisitor*) visitor {
-	CC3OpenGLES11Engine* gles11Engine = [CC3OpenGLES11Engine engine];
+	CC3OpenGL* gl = visitor.gl;
 
-	// Disable point sprites again
-	[gles11Engine.serverCapabilities.pointSprites disable];
+	// Disable point sprites again, but leave point sizing enabled
+	[gl enablePointSprites: NO];
 
 	// Disable texture coordinate replacing again in each texture unit used by the material.
-	GLuint texCount = material ? material.textureCount : 0;
-	for (GLuint texUnit = 0; texUnit < texCount; texUnit++) {
-		[[gles11Engine.textures textureUnitAt: texUnit].pointSpriteCoordReplace disable];
-	}
+	GLuint texCount = _material ? _material.textureCount : 0;
+	for (GLuint texUnit = 0; texUnit < texCount; texUnit++)
+		[gl enablePointSpriteCoordReplace: NO at: texUnit];
 }
 
 #define kCC3DeviceScaleFactorBase 480.0f
-static GLfloat deviceScaleFactor = 0.0f;
+static GLfloat _deviceScaleFactor = 0.0f;
 
 /**
  * The scaling factor used to adjust the particle size so that it is drawn at a consistent
@@ -423,11 +411,11 @@ static GLfloat deviceScaleFactor = 0.0f;
  * Devices with smaller screen heights in pixels will return a value less than 1.0
  */
 +(GLfloat) deviceScaleFactor {
-	if (deviceScaleFactor == 0.0f) {
+	if (_deviceScaleFactor == 0.0f) {
 		CGSize winSz = [[CCDirector sharedDirector] winSizeInPixels];
-		deviceScaleFactor = MAX(winSz.height, winSz.width) / kCC3DeviceScaleFactorBase;
+		_deviceScaleFactor = MAX(winSz.height, winSz.width) / kCC3DeviceScaleFactorBase;
 	}
-	return deviceScaleFactor;
+	return _deviceScaleFactor;
 }
 
 /**
@@ -439,7 +427,7 @@ static GLfloat deviceScaleFactor = 0.0f;
  * in order to initialize this value correctly.
  */
 -(GLfloat) normalizeParticleSizeToDevice: (GLfloat) aSize {
-	return shouldNormalizeParticleSizesToDevice ? (aSize * deviceScaleFactor) : aSize;
+	return _shouldNormalizeParticleSizesToDevice ? (aSize * _deviceScaleFactor) : aSize;
 }
 
 /**
@@ -451,230 +439,7 @@ static GLfloat deviceScaleFactor = 0.0f;
  * in order to initialize this value correctly.
  */
 -(GLfloat) denormalizeParticleSizeFromDevice: (GLfloat) aSize {
-	return shouldNormalizeParticleSizesToDevice ? (aSize / deviceScaleFactor) : aSize;
-}
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3PointParticleMesh
-
-@interface CC3VertexArrayMesh (TemplateMethods)
--(void) createVertexContent: (CC3VertexContent) vtxContentTypes;
--(void) updateGLBuffersStartingAt: (GLuint) offsetIndex forLength: (GLuint) elemCount;
-@end
-
-@implementation CC3PointParticleMesh
-
--(void) dealloc {
-	[vertexPointSizes release];
-	[super dealloc];
-}
-
--(void) setName: (NSString*) aName {
-	super.name = aName;
-	[vertexPointSizes deriveNameFrom: self];
-}
-
--(CC3VertexPointSizes*) vertexPointSizes { return vertexPointSizes; }
-
--(void) setVertexPointSizes: (CC3VertexPointSizes*) vtxSizes {
-	[vertexPointSizes autorelease];
-	vertexPointSizes = [vtxSizes retain];
-	[vertexPointSizes deriveNameFrom: self];
-}
-
--(BOOL) hasVertexPointSizes { return (vertexPointSizes != nil); }
-
-// Deprecated
--(GLuint) particleCount { return self.vertexCount; }
--(void) setParticleCount: (GLuint) numParticles { self.vertexCount = numParticles; }
-
-
-#pragma mark Vertex management
-
-// Overridden to check for and add point size content.
--(CC3VertexContent) vertexContentTypes {
-	CC3VertexContent vtxContent = super.vertexContentTypes;
-	if (self.hasVertexPointSizes) vtxContent |= kCC3VertexContentPointSize;
-	return vtxContent;
-}
-
-// Keep the compiler happy with re-declaration for documentation purposes
--(void) setVertexContentTypes: (CC3VertexContent) vtxContentTypes {
-	super.vertexContentTypes = vtxContentTypes;
-}
-
-// Overridden to check for and add point size content.
--(void) createVertexContent: (CC3VertexContent) vtxContentTypes {
-	
-	// Construct all the other vertex arrays
-	[super createVertexContent: vtxContentTypes];
-	
-	// Point sizes
-	if (vtxContentTypes & kCC3VertexContentPointSize) {
-		if (!vertexPointSizes) self.vertexPointSizes = [CC3VertexPointSizes vertexArray];
-	} else {
-		self.vertexPointSizes = nil;
-	}
-}
-
--(GLuint) vertexStride {
-	GLuint stride = super.vertexStride;
-	if (vertexPointSizes) stride += vertexPointSizes.elementLength;
-	return stride;
-}
-
--(void) setVertexStride: (GLuint) vtxStride {
-	super.vertexStride = vtxStride;
-	if (shouldInterleaveVertices) vertexPointSizes.vertexStride = vtxStride;
-}
-
--(GLuint) updateVertexStride {
-	GLuint stride = [super updateVertexStride];
-	
-	if (vertexPointSizes) {
-		if (shouldInterleaveVertices) vertexPointSizes.elementOffset = stride;
-		stride += vertexPointSizes.elementLength;
-	}
-	
-	self.vertexStride = stride;
-	return stride;
-}
-
--(void) populateFrom: (CC3PointParticleMesh*) another {
-	[super populateFrom: another];
-	
-	// Share vertex arrays between copies
-	self.vertexPointSizes = another.vertexPointSizes;		// retained but not copied
-}
-
-/**
- * If the shouldInterleaveVertices property is set to NO, creates GL vertex buffer object for
- * the point size vertex array by invoking createGLBuffer.
- *
- * If the shouldInterleaveVertices property is set to YES, indicating that the underlying data
- * is shared across the contained vertex arrays, the bufferID property of the point sizes
- * vertex array is copied from the vertexLocations vertex array.
- */
--(void) createGLBuffers {
-	[super createGLBuffers];
-	if (shouldInterleaveVertices) {
-		vertexPointSizes.bufferID = vertexLocations.bufferID;
-	} else {
-		[vertexPointSizes createGLBuffer];
-	}
-}
-
--(void) deleteGLBuffers {
-	[super deleteGLBuffers];
-	[vertexPointSizes deleteGLBuffer];
-}
-
--(BOOL) isUsingGLBuffers {
-	if (super.isUsingGLBuffers) return YES;
-	if (vertexPointSizes && vertexPointSizes.isUsingGLBuffer) return YES;
-	return NO;
-}
-
--(void) releaseRedundantData {
-	[super releaseRedundantData];
-	[vertexPointSizes releaseRedundantData];
-}
-
--(void) retainVertexContent {
-	[super retainVertexContent];
-	[self retainVertexPointSizes];
-}
-
--(void) retainVertexPointSizes {
-	if ( !self.hasVertexPointSizes ) return;
-	
-	if (shouldInterleaveVertices) [self retainVertexLocations];
-	vertexPointSizes.shouldReleaseRedundantData = NO;
-}
-
--(void) doNotBufferVertexContent {
-	[super doNotBufferVertexContent];
-	[self doNotBufferVertexPointSizes];
-}
-
--(void) doNotBufferVertexPointSizes {
-	if (shouldInterleaveVertices) [self doNotBufferVertexLocations];
-	vertexPointSizes.shouldAllowVertexBuffering = NO;
-}
-
--(void) copyVertices: (GLuint) vtxCount from: (GLuint) srcIdx to: (GLuint) dstIdx {
-	[super copyVertices: vtxCount from: srcIdx to: dstIdx];
-	if ( !shouldInterleaveVertices ) {
-		[vertexPointSizes copyVertices: self.vertexCount from: srcIdx to: dstIdx];
-	}
-}
-
--(void) copyVertexAt: (GLuint) srcIdx from: (CC3VertexArrayMesh*) srcMesh to: (GLuint) dstIdx {
-	[super copyVertexAt: srcIdx from: srcMesh to: dstIdx];
-	if (self.hasVertexPointSizes) [self setVertexPointSize: [srcMesh vertexPointSizeAt: srcIdx] at: dstIdx];
-}
-
-
-#pragma mark Accessing vertex data
-
--(void) setAllocatedVertexCapacity: (GLuint) vtxCount {
-	if (vtxCount == self.allocatedVertexCapacity) return;
-
-	super.allocatedVertexCapacity = vtxCount;
-	if (self.shouldInterleaveVertices) {
-		[vertexPointSizes interleaveWith: vertexLocations];
-	} else {
-		vertexPointSizes.allocatedVertexCapacity = vtxCount;
-	}
-}
-
--(void) setVertexCount: (GLuint) vCount {
-	super.vertexCount = vCount;
-	vertexPointSizes.vertexCount = vCount;
-}
-
--(GLfloat) vertexPointSizeAt: (GLuint) vtxIndex {
-	return vertexPointSizes ? [vertexPointSizes pointSizeAt: vtxIndex] : 0.0f;
-}
-
--(void) setVertexPointSize: (GLfloat) aSize at: (GLuint) vtxIndex {
-	[vertexPointSizes setPointSize: aSize at: vtxIndex];
-}
-
--(void) updatePointSizesGLBuffer { [vertexPointSizes updateGLBuffer]; }
-
-// Deprecated
--(GLfloat) particleSizeAt: (GLuint) vtxIndex { return [self vertexPointSizeAt: vtxIndex]; }
--(void) setParticleSize: (GLfloat) aSize at: (GLuint) vtxIndex { [self setVertexPointSize: aSize at: vtxIndex]; }
--(void) updateParticleSizesGLBuffer { [self updatePointSizesGLBuffer]; }
-
-
-#pragma mark Updating
-
--(void) updateGLBuffersStartingAt: (GLuint) offsetIndex forLength: (GLuint) vertexCount {
-	[super updateGLBuffersStartingAt: offsetIndex forLength: vertexCount];
-	if (!shouldInterleaveVertices) {
-		[vertexPointSizes updateGLBufferStartingAt: offsetIndex forLength: vertexCount];
-	}
-}
-
-
-#pragma mark Drawing
-
-/**
- * Template method that binds a pointer to the vertex point size data to the GL engine.
- * If this mesh has no vertex point size data, the pointer is cleared in the GL engine
- * by invoking the CC3VertexPointSizes unbind class method.
- */
--(void) bindPointSizesWithVisitor: (CC3NodeDrawingVisitor*) visitor {
-	if (vertexPointSizes) {
-		[vertexPointSizes bindWithVisitor: visitor];
-	} else {
-		[CC3VertexPointSizes unbind];
-	}
+	return _shouldNormalizeParticleSizesToDevice ? (aSize / _deviceScaleFactor) : aSize;
 }
 
 @end
@@ -690,23 +455,23 @@ static GLfloat deviceScaleFactor = 0.0f;
 
 @implementation CC3PointParticle
 
--(CC3PointParticleEmitter*) emitter { return (CC3PointParticleEmitter*)emitter; }
+-(CC3PointParticleEmitter*) emitter { return (CC3PointParticleEmitter*)_emitter; }
 
 -(void) setEmitter: (CC3PointParticleEmitter*) anEmitter {
-	NSAssert1([anEmitter isKindOfClass: [CC3PointParticleEmitter class]], @"%@ may only be emitted by a CC3PointParticleEmitter.", self);
+	CC3Assert([anEmitter isKindOfClass: [CC3PointParticleEmitter class]], @"%@ may only be emitted by a CC3PointParticleEmitter.", self);
 	super.emitter = anEmitter;
 }
 
--(BOOL) isAlive { return isAlive; }
+-(BOOL) isAlive { return _isAlive; }
 
--(void) setIsAlive: (BOOL) alive { isAlive = alive; }
+-(void) setIsAlive: (BOOL) alive { _isAlive = alive; }
 
--(NSUInteger) particleIndex { return particleIndex; }
+-(GLuint) particleIndex { return _particleIndex; }
 
 /** Overridden to update the underlying vertex indices array, if it exists. */
--(void) setParticleIndex: (NSUInteger) anIndex {
-	particleIndex = anIndex;
-	[emitter setVertexIndex: anIndex at: anIndex];	// Ignored if not using indexed drawing
+-(void) setParticleIndex: (GLuint) anIndex {
+	_particleIndex = anIndex;
+	[_emitter setVertexIndex: anIndex at: anIndex];	// Ignored if not using indexed drawing
 }
 
 // Deprecated
@@ -714,44 +479,44 @@ static GLfloat deviceScaleFactor = 0.0f;
 
 -(GLuint) vertexCount { return 1; }
 
--(NSRange) vertexRange { return NSMakeRange(particleIndex, self.vertexCount); }
+-(NSRange) vertexRange { return NSMakeRange(_particleIndex, self.vertexCount); }
 
 -(GLuint) vertexIndexCount { return 1; }
 
--(NSRange) vertexIndexRange { return NSMakeRange(particleIndex, self.vertexIndexCount); }
+-(NSRange) vertexIndexRange { return NSMakeRange(_particleIndex, self.vertexIndexCount); }
 
--(CC3Vector) location { return [emitter vertexLocationAt: particleIndex]; }
+-(CC3Vector) location { return [_emitter vertexLocationAt: _particleIndex]; }
 
--(void) setLocation: (CC3Vector) aLocation { [emitter setVertexLocation: aLocation at: particleIndex]; }
+-(void) setLocation: (CC3Vector) aLocation { [_emitter setVertexLocation: aLocation at: _particleIndex]; }
 
--(CC3Vector) normal { return [emitter vertexNormalAt: particleIndex]; }
+-(CC3Vector) normal { return [_emitter vertexNormalAt: _particleIndex]; }
 
--(void) setNormal: (CC3Vector) aNormal { [emitter setVertexNormal: aNormal at: particleIndex]; }
+-(void) setNormal: (CC3Vector) aNormal { [_emitter setVertexNormal: aNormal at: _particleIndex]; }
 
--(BOOL) hasNormal { return self.emitter.mesh.hasVertexNormals; }
+-(BOOL) hasNormal { return _emitter.mesh.hasVertexNormals; }
 
--(ccColor4F) color4F { return self.hasColor ? [emitter vertexColor4FAt: particleIndex] : [super color4F]; }
+-(ccColor4F) color4F { return self.hasColor ? [_emitter vertexColor4FAt: _particleIndex] : [super color4F]; }
 
--(void) setColor4F: (ccColor4F) aColor { [emitter setVertexColor4F: aColor at: particleIndex]; }
+-(void) setColor4F: (ccColor4F) aColor { [_emitter setVertexColor4F: aColor at: _particleIndex]; }
 
--(ccColor4B) color4B { return self.hasColor ? [emitter vertexColor4BAt: particleIndex] : [super color4B]; }
+-(ccColor4B) color4B { return self.hasColor ? [_emitter vertexColor4BAt: _particleIndex] : [super color4B]; }
 
--(void) setColor4B: (ccColor4B) aColor { [emitter setVertexColor4B: aColor at: particleIndex]; }
+-(void) setColor4B: (ccColor4B) aColor { [_emitter setVertexColor4B: aColor at: _particleIndex]; }
 
 -(GLfloat) size {
 	CC3PointParticleEmitter* pe = self.emitter;
-	return self.hasSize ? [pe particleSizeAt: particleIndex] : pe.particleSize;
+	return self.hasSize ? [pe particleSizeAt: _particleIndex] : pe.particleSize;
 }
 
--(void) setSize: (GLfloat) aSize { [self.emitter setParticleSize: aSize at: particleIndex]; }
+-(void) setSize: (GLfloat) aSize { [self.emitter setParticleSize: aSize at: _particleIndex]; }
 
 -(BOOL) hasSize { return self.emitter.mesh.hasVertexPointSizes; }
 
 -(BOOL) hasVertexIndices { return NO; }
 
 // Deprecated property
--(NSUInteger) index { return self.particleIndex; }
--(void) setIndex: (NSUInteger) anIdx { self.particleIndex = anIdx; }
+-(GLuint) index { return self.particleIndex; }
+-(void) setIndex: (GLuint) anIdx { self.particleIndex = anIdx; }
 
 // Deprecated
 -(void) update: (ccTime) dt {}
@@ -761,7 +526,7 @@ static GLfloat deviceScaleFactor = 0.0f;
 }
 
 -(NSString*) description {
-	return [NSString stringWithFormat: @"%@ at index %i", [super description], particleIndex];
+	return [NSString stringWithFormat: @"%@ at index %i", [super description], _particleIndex];
 }
 
 - (NSString*) fullDescription {
@@ -791,7 +556,7 @@ static GLfloat deviceScaleFactor = 0.0f;
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		particleIndex = 0;
+		_particleIndex = 0;
 	}
 	return self;
 }
@@ -806,58 +571,28 @@ static GLfloat deviceScaleFactor = 0.0f;
 
 // Deprecated
 +(id) particleFromEmitter: (CC3PointParticleEmitter*) anEmitter {
-	return [[[self alloc] initFromEmitter: anEmitter] autorelease];
+	return [[self alloc] initFromEmitter: anEmitter];
 }
 
 -(void) populateFrom: (CC3PointParticle*) another {
 	[super populateFrom: another];
-	particleIndex = another.particleIndex;
+	_particleIndex = another.particleIndex;
 }
 
 @end
 
 
 #pragma mark -
-#pragma mark CC3Node point particles extensions
+#pragma mark Deprecated CC3PointParticleMesh
 
-@implementation CC3Node (PointParticles)
-
--(void) retainVertexPointSizes {
-	for (CC3Node* child in children) {
-		[child retainVertexPointSizes];
-	}
-}
-
--(void) doNotBufferVertexPointSizes {
-	for (CC3Node* child in children) {
-		[child doNotBufferVertexPointSizes];
-	}
-}
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3Mesh point particles extensions
-
-@implementation CC3Mesh (PointParticles)
-
--(BOOL) hasVertexPointSizes { return NO; }
+@implementation CC3PointParticleMesh
 
 // Deprecated
--(BOOL) hasPointSizes { return self.hasVertexPointSizes; }
-
-
-#pragma mark Managing vertex content
-
--(GLfloat) vertexPointSizeAt: (GLuint) vtxIndex { return 0.0f; }
-
--(void) setVertexPointSize: (GLfloat) aSize at: (GLuint) vtxIndex {}
-
--(void) updatePointSizesGLBuffer {}
-
--(void) retainVertexPointSizes {}
-
--(void) doNotBufferVertexPointSizes {}
+-(GLuint) particleCount { return self.vertexCount; }
+-(void) setParticleCount: (GLuint) numParticles { self.vertexCount = numParticles; }
+-(GLfloat) particleSizeAt: (GLuint) vtxIndex { return [self vertexPointSizeAt: vtxIndex]; }
+-(void) setParticleSize: (GLfloat) aSize at: (GLuint) vtxIndex { [self setVertexPointSize: aSize at: vtxIndex]; }
+-(void) updateParticleSizesGLBuffer { [self updatePointSizesGLBuffer]; }
 
 @end
+

@@ -1,9 +1,9 @@
 /*
  * CC3Node.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -36,65 +36,23 @@
 #import "CC3BoundingVolumes.h"
 #import "CCAction.h"
 #import "CCProtocols.h"
+#import "CC3ShaderContext.h"
+#import "CC3NodeListeners.h"
 
-@class CC3NodeDrawingVisitor, CC3Scene, CC3Camera, CC3Frustum;
-@class CC3NodeAnimation, CC3NodeDescriptor, CC3WireframeBoundingBoxNode;
+@class CC3NodeDrawingVisitor, CC3Scene, CC3Camera, CC3Frustum, CC3Texture;
+@class CC3NodeDescriptor, CC3WireframeBoundingBoxNode;
+
 
 /**
  * Enumeration of options for scaling normals after they have been transformed during
  * vertex drawing.
  */
 typedef enum {
-	kCC3NormalScalingNone,			/**< Don't resize normals. */
+	kCC3NormalScalingNone = 0,		/**< Don't resize normals. */
 	kCC3NormalScalingRescale,		/**< Uniformly rescale normals using model-view matrix. */
 	kCC3NormalScalingNormalize,		/**< Normalize each normal after tranformation. */
 	kCC3NormalScalingAutomatic,		/**< Automatically determine optimal normal scaling method. */
 } CC3NormalScaling;
-
-
-#pragma mark -
-#pragma mark CC3NodeListenerProtocol
-
-/**
- * This protocol defines the behaviour requirements for objects that wish to be
- * notified about the basic existence of a node.
- */
-@protocol CC3NodeListenerProtocol
-
-/**
- * Callback method that will be invoked when the node has been deallocated.
- *
- * Although the sending node is still alive when sending this message, its state is
- * unpredictable, because all subclass state will have been released or detroyed when
- * this message is sent. The receiver of this message should not attempt to send any
- * messages to the sender. Instead, it should simply clear any references to the node.
- */
--(void) nodeWasDestroyed: (CC3Node*) aNode;
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3NodeTransformListenerProtocol
-
-/**
- * This protocol defines the behaviour requirements for objects that wish to be
- * notified whenever the transform of a node has changed.
- *
- * This occurs when one of the transform properties (location, rotation & scale)
- * of the node, or any of its structural ancestor nodes, has changed.
- *
- * A transform listener can be registered with a node via the addTransformListener: method.
- *
- * Each listener registered with a node will be sent the nodeWasTransformed: notification
- * message when the transformMatrix of this node is recalculated, or is set directly.
- */
-@protocol CC3NodeTransformListenerProtocol <CC3NodeListenerProtocol>
-
-/** Callback method that will be invoked when the transformMatrix of the specified node has changed. */
--(void) nodeWasTransformed: (CC3Node*) aNode;
-
-@end
 
 
 #pragma mark -
@@ -143,15 +101,15 @@ typedef enum {
  * 
  * You should override updateAfterTransform: only if you need to make use of the global
  * properties of the node or its child nodes, such as globalLocation, globalRotation, or
- * globalScale. These properties are valid only after the transformMatrix has been
+ * globalScale. These properties are valid only after the globalTransformMatrix has been
  * calculated, and are therefore not valid within the updateBeforeTransform: method.
  * However, if you make any changes to the transform properties (location, rotation, scale)
  * of a node within the updateAfterTransform: method, you must invoke the updateTransformMatrices
- * method on that node in order to have the changes applied to the node's transformMatrix.
+ * method on that node in order to have the changes applied to the node's globalTransformMatrix.
  * 
  * Note that you do NOT need to invoke the updateTransformMatrices method for any changes
  * made in the updateBeforeTransform: method, since those changes will automatically be
- * applied to the transformMatrix.
+ * applied to the globalTransformMatrix.
  *
  * The second place a node is touched is the transformAndDrawWithVisitor: method,
  * which is automaticaly invoked during each frame rendering cycle. You should have
@@ -169,9 +127,8 @@ typedef enum {
  * CC3Nodes support the cocos2d CCAction class hierarchy. Nodes can be translated, rotated,
  * and scaled in three dimensions, or made to point towards a direction (for cameras and
  * lights), all under control of cocos2d CCActions. As with other CCActions, these actions
- * can be combined into action sequences or repeating actions, or modified with cocos2d
- * ease actions. See the class CC3TransformTo and its subclasses for actions that operate
- * on CC3Nodes.
+ * can be combined into action sequences or repeating actions, or modified with cocos2d ease
+ * actions. See the class CC3TransformTo and its subclasses for actions that operate on CC3Nodes.
  *
  * When populating your scene, you can easily create hordes of similar nodes using the copy
  * and copyWithName: methods. Those methods effect deep copies to allow each copy to be
@@ -179,16 +136,40 @@ typedef enum {
  * See the notes at the copy method for more details about copying nodes.
  *
  * You can animate this class with animation data held in a subclass of CC3NodeAnimation.
- * To animate this node using animation data, set the animation property to an instance of
- * a subclass of the abstract CC3NodeAnimation class, populated with animation data, and
- * then create an instance of a CC3Animate action, and run it on this node.
+ * To animate this node using animation data, set the animation property to an instance
+ * of a subclass of the abstract CC3NodeAnimation class, populated with animation content,
+ * and then create an instance of a CC3Animate action, and run it on this node.
  *
- * Nodes can respond to iOS touch events. The property isTouchEnabled can be set to YES
+ * Nodes can respond to iOS touch events. The property touchEnabled can be set to YES
  * to allow a node to be selected by a touch event. If the shouldInheritTouchability
  * property is also set to YES, then this touchable capability can also be inherited from
  * a parent node. Selection of nodes based on touch events is handled by CC3Scene. The
  * nodeSelected:byTouchEvent:at: callback method of your customized CC3Scene will be
  * invoked to indicate which node has been touched.
+ *
+ * With complex scenes, the drawing of objects that are not within view of the camera will
+ * consume GPU resources unnecessarily, and potentially degrading app performance. We can
+ * avoid drawing objects that are not within view of the camera by assigning a bounding
+ * volume to each mesh node. Once assigned, the bounding volume is automatically checked
+ * to see if it intersects the camera's frustum before the mesh node is drawn. If the mesh
+ * node's bounding volume intersects the camera frustum, the node will be drawn. If the
+ * bounding volume does not intersect the camera's frustum, the node will not be visible
+ * to the camera, and the node will not be drawn. Bounding volumes can also be used for
+ * collision detection between nodes.
+ *
+ * You can create bounding volumes automatically for most rigid (non-skinned) objects by
+ * invoking the createBoundingVolumes on a node. This will create bounding volumes for all
+ * decendant rigid mesh nodes of that node. Invoking the method on your scene will create
+ * bounding volumes for all rigid mesh nodes in the scene. 
+ *
+ * Bounding volumes are not automatically created for skinned meshes that modify vertices
+ * using bones. Because the vertices can be moved arbitrarily by the bones, you must create
+ * and assign bounding volumes to skinned mesh nodes yourself, by determining the extent of
+ * the bounding volume you need, and creating a bounding volume that matches it. 
+ *
+ * Checking bounding volumes involves a small computation cost. For objects that you know 
+ * will be in front of the camera at all times, you can skip creating a bounding volume for 
+ * that node, letting it be drawn on each frame.
  *
  * You can cause a wireframe box to be drawn around the node and all its descendants by
  * setting the shouldDrawWireframeBox property to YES. This can be particularly useful
@@ -199,43 +180,38 @@ typedef enum {
  * You can also cause the name of the node to be displayed where the node is by setting 
  * the shouldDrawDescriptor property to YES. This is also useful for locating a node when
  * debugging rendering problems.
- *
- * To maximize GL throughput, all OpenGL ES 1.1 state is tracked by the singleton instance
- * [CC3OpenGLES11Engine engine]. CC3OpenGLES11Engine only sends state change calls to the
- * GL engine if GL state really is changing. It is critical that all changes to GL state
- * are made through the CC3OpenGLES11Engine singleton. When adding or overriding functionality
- * in this framework, do NOT make gl* function calls directly if there is a corresponding
- * state change tracker in the CC3OpenGLES11Engine singleton. Route the state change request
- * through the CC3OpenGLES11Engine singleton instead.
  */
 @interface CC3Node : CC3Identifiable <CCRGBAProtocol, CCBlendProtocol, CC3NodeTransformListenerProtocol> {
-	CCArray* children;
-	CC3Node* parent;
-	CC3Matrix* transformMatrix;
-	CC3Matrix* transformMatrixInverted;
-	CCArray* transformListeners;
-	CC3Matrix* globalRotationMatrix;
-	CC3Rotator* rotator;
-	CC3NodeBoundingVolume* boundingVolume;
-	CC3NodeAnimation* animation;
-	CC3Vector location;
-	CC3Vector globalLocation;
-	CC3Vector projectedLocation;
-	CC3Vector scale;
-	CC3Vector globalScale;
-	GLfloat boundingVolumePadding;
-	BOOL isTransformDirty : 1;
-	BOOL isTransformInvertedDirty : 1;
-	BOOL isGlobalRotationDirty : 1;
-	BOOL isTouchEnabled : 1;
-	BOOL shouldInheritTouchability : 1;
-	BOOL shouldAllowTouchableWhenInvisible : 1;
-	BOOL isAnimationEnabled : 1;
-	BOOL visible : 1;
-	BOOL isRunning : 1;
-	BOOL shouldAutoremoveWhenEmpty : 1;
-	BOOL shouldUseFixedBoundingVolume : 1;
-	BOOL shouldStopActionsWhenRemoved : 1;
+	NSMutableArray* _children;
+	CC3Node* __unsafe_unretained _parent;
+	CC3Matrix* _globalTransformMatrix;
+	CC3Matrix* _globalTransformMatrixInverted;
+	CC3Matrix* _globalRotationMatrix;
+	CC3Rotator* _rotator;
+	CC3NodeBoundingVolume* _boundingVolume;
+	CC3NodeTransformListeners* _transformListeners;
+	NSMutableArray* _animationStates;
+	CC3Vector _location;
+	CC3Vector _projectedLocation;
+	CC3Vector _scale;
+	GLfloat _boundingVolumePadding;
+	GLfloat _cameraDistanceProduct;
+	BOOL _isTransformDirty : 1;
+	BOOL _isTransformInvertedDirty : 1;
+	BOOL _isGlobalRotationDirty : 1;
+	BOOL _touchEnabled : 1;
+	BOOL _shouldInheritTouchability : 1;
+	BOOL _shouldAllowTouchableWhenInvisible : 1;
+	BOOL _visible : 1;
+	BOOL _isRunning : 1;
+	BOOL _shouldAutoremoveWhenEmpty : 1;
+	BOOL _shouldUseFixedBoundingVolume : 1;
+	BOOL _shouldStopActionsWhenRemoved : 1;
+	BOOL _isAnimationDirty : 1;
+	BOOL _cascadeColorEnabled : 1;
+	BOOL _cascadeOpacityEnabled : 1;
+	BOOL _isBeingAdded : 1;
+	BOOL _shouldCastShadows : 1;	// Used by subclasses - held here for conciseness
 }
 
 /**
@@ -248,9 +224,19 @@ typedef enum {
 /**
  * The location of the node in 3D space, relative to the global origin.
  * 
- * This is calculated by using the transformMatrix to tranform the local origin (0,0,0).
+ * This is calculated by using the globalTransformMatrix to tranform the local origin (0,0,0).
  */
 @property(nonatomic, readonly) CC3Vector globalLocation;
+
+/**
+ * The position of this node in a global 4D homogeneous coordinate space.
+ *
+ * The X, Y & Z components of the returned 4D vector are the same as those in the globalLocation
+ * property, and for most nodes, the W-component will be one, indicating that the returned vector
+ * represents a location. Certain directional subclasses, particularly lights, may optionally return
+ * this vector with a W-component of zero, indicating that the returned vector represents a direction.
+ */
+@property(nonatomic, readonly) CC3Vector4 globalHomogeneousPosition;
 
 /**
  * Translates the location of this node by the specified vector.
@@ -273,7 +259,7 @@ typedef enum {
  * accessed or changed, this property will return a CC3DirectionalRotator. The creation
  * of the type of rotator required to support the various rotations is automatic.
  */
-@property(nonatomic, retain) CC3Rotator* rotator;
+@property(nonatomic, strong) CC3Rotator* rotator;
 
 /**
  * The rotational orientation of the node in 3D space, relative to the parent of this node.
@@ -399,7 +385,7 @@ typedef enum {
 
 /**
  * The direction in which this node is pointing, relative to the global
- * coordinate system. This is calculated by using the transformMatrix
+ * coordinate system. This is calculated by using the globalTransformMatrix
  * to translate the forwardDirection.
  *
  * The value returned is of unit length. 
@@ -458,7 +444,7 @@ typedef enum {
 
 /**
  * The direction that is considered to be 'up' for this node, relative to the
- * global coordinate system. This is calculated by using the transformMatrix to
+ * global coordinate system. This is calculated by using the globalTransformMatrix to
  * translate the upDirection. As the node is rotated from its default orientation,
  * this value will be different than the referenceUpDirection, which is fixed and
  * independent of the orientation of the node.
@@ -484,7 +470,7 @@ typedef enum {
 /**
  * The direction that is considered to be "off to the right" for this node,
  * relative to the global coordinate system. This is calculated by using the
- * transformMatrix to translate the rightDirection.
+ * globalTransformMatrix to translate the rightDirection.
  *
  * The value returned is of unit length. 
  */
@@ -495,6 +481,12 @@ typedef enum {
  *
  * Unless non-uniform scaling is needed, it is recommended that you use the uniformScale
  * property instead.
+ * 
+ * To ensure that scales used in transforms do not cause singularities and uninvertable matrices,
+ * when this scale is applied to the transform of this node, the transform ensures the absolute
+ * value of each of the components in the specified scale vector is greater than kCC3ScaleMin.
+ * Any component between -kCC3ScaleMin and kCC3ScaleMin is replaced with -kCC3ScaleMin or
+ * kCC3ScaleMin, depending on whether the component is less than zero, or not, respectively.
  */
 @property(nonatomic, assign) CC3Vector scale;
 
@@ -513,6 +505,12 @@ typedef enum {
  * If non-uniform scaling is applied via the scale property, this uniformScale property will
  * return the length of the scale property vector divided by the length of a unit cube (sqrt(3.0)),
  * as an approximation of the overall scaling condensed to a single scalar value.
+ *
+ * To ensure that scales used in transforms do not cause singularities and uninvertable matrices,
+ * when this scale is applied to the transform of this node, the transform ensures the absolute
+ * value of the specified scale value is greater than kCC3ScaleMin. If the value is between
+ * -kCC3ScaleMin and kCC3ScaleMin, it is replaced with -kCC3ScaleMin or kCC3ScaleMin, depending
+ * on whether the component is less than zero, or not, respectively.
  */
 @property(nonatomic, assign) GLfloat uniformScale;
 
@@ -535,58 +533,28 @@ typedef enum {
  *
  * A rigid transform contains only rotation and translation transformations, and does not include scaling.
  *
- * This implementation returns the value of the isRigid property of the transformMatrix.
+ * This implementation returns the value of the isRigid property of the globalTransformMatrix.
  */
 @property(nonatomic, readonly) BOOL isTransformRigid;
 
 /**
  * @deprecated This property is no longer needed, since the rigidity of a node transform is
- * now tracked by the transformMatrix itself. This property will always return zero. Setting
+ * now tracked by the globalTransformMatrix itself. This property will always return zero. Setting
  * this property will have no effect.
  */
 @property(nonatomic, assign) GLfloat scaleTolerance DEPRECATED_ATTRIBUTE;
 
 /**
  * @deprecated This property is no longer needed, since the rigidity of a node transform is
- * now tracked by the transformMatrix itself. This property will always return zero.
+ * now tracked by the globalTransformMatrix itself. This property will always return zero.
  */
 +(GLfloat) defaultScaleTolerance DEPRECATED_ATTRIBUTE;
 
 /**
  * @deprecated This property is no longer needed, since the rigidity of a node transform is
- * now tracked by the transformMatrix itself. Setting this property will have no effect.
+ * now tracked by the globalTransformMatrix itself. Setting this property will have no effect.
  */
 +(void) setDefaultScaleTolerance: (GLfloat) aTolerance DEPRECATED_ATTRIBUTE;
-
-/**
- * The bounding volume of this node. This is used by culling during drawing operations,
- * it can be used by the application to detect when two nodes intersect in space
- * (collision detection), and it can be used to determine whether a node intersects
- * a specific location, ray, or plane.
- *
- * Different shapes of boundaries are available, permitting tradeoffs between
- * accuracy and computational processing time.
- *
- * By default, nodes do not have a bounding volume. Subclasses may set a suitable
- * bounding volume.
- *
- * You can make the bounding volume of any node visible by setting the
- * shouldDrawBoundingVolume property to YES. You can use the shouldDrawAllBoundingVolumes
- * property to make the bounding volumes of this node and all its descendants visible
- * by setting the shouldDrawAllBoundingVolumes property to YES.
- */
-@property(nonatomic, retain) CC3NodeBoundingVolume* boundingVolume;
-
-/**
- * Padding that is added to all edges of the bounding volume, when the bounding volume or the
- * boundingBox property is determined.
- *
- * You can use this to establish a "buffer zone" around the node when creating bounding volumes
- * or when working with the boundingBox of this node.
- *
- * The initial value of this property is zero.
- */
-@property(nonatomic, assign) GLfloat boundingVolumePadding;
 
 /**
  * Returns the smallest axis-aligned bounding box that surrounds any local content
@@ -594,7 +562,7 @@ typedef enum {
  *
  * The returned bounding box is specfied in the local coordinate system of this node.
  *
- * Returns kCC3BoundingBoxNull if this node has no local content or descendants.
+ * Returns kCC3BoxNull if this node has no local content or descendants.
  *
  * The computational cost of reading this property depends on whether the node has children.
  * For a node without children, this property can be read quickly from the cached bounding
@@ -605,7 +573,7 @@ typedef enum {
  * of any descendant node, this property must measured dynamically on each access,
  * by traversing all descendant nodes. This is a computationally expensive method.
  */
-@property(nonatomic, readonly) CC3BoundingBox boundingBox;
+@property(nonatomic, readonly) CC3Box boundingBox;
 
 /**
  * Returns the smallest axis-aligned bounding box that surrounds any local content
@@ -613,13 +581,13 @@ typedef enum {
  *
  * The returned bounding box is specfied in the global coordinate system of the 3D scene.
  *
- * Returns kCC3BoundingBoxNull if this node has no local content or descendants.
+ * Returns kCC3BoxNull if this node has no local content or descendants.
  *
  * Since the bounding box of a node can change based on the locations, rotations, or
  * scales of any descendant node, this property is measured dynamically on each access,
  * by traversing all descendant nodes. This is a computationally expensive method.
  */
-@property(nonatomic, readonly) CC3BoundingBox globalBoundingBox;
+@property(nonatomic, readonly) CC3Box globalBoundingBox;
 
 /**
  * Returns the center of geometry of this node, including any local content of
@@ -649,6 +617,27 @@ typedef enum {
  * node has children. See the notes for that property for more info.
  */
 @property(nonatomic, readonly) CC3Vector globalCenterOfGeometry;
+
+/**
+ * A measure of the distance from the camera to the global center of geometry of the node.
+ * This is used to test the Z-order of this node to determine rendering order.
+ *
+ * For nodes whose rendering order depends on distance to the camera (eg- translucent nodes),
+ * this property is set automatically when the nodes are sequenced for drawing. The application
+ * will generally make no use of this property directly.
+ *
+ * Do not use the value of this property as the true distance from the node to the camera.
+ * This measure is not the actual distance from the camera to the node, but it is related
+ * to that distance, and increases monotonically as the distance to the camera increases.
+ *
+ * Different node sequencers may measure distance differently. If the node sequencer uses
+ * the true distance from the camera to the node, this property will be set to the square
+ * of that distance to avoid making the computationally expensive and unnecessary square-root
+ * calculation. If the node sequencer compares distance in one direction only, such as only
+ * in the forwardDirection of the camera, or only the Z-axis component of the distance, the
+ * value will be somewhat different than the square of the distance.
+ */
+@property(nonatomic, assign) GLfloat cameraDistanceProduct;
 
 /**
  * The current location of this node, as projected onto the 2D viewport coordinate space.
@@ -756,10 +745,11 @@ typedef enum {
  * is set to YES, this node will track the target so that it always points to the
  * target, regardless of how the target and this node move through the 3D scene.
  *
- * The target is not retained. If you destroy the target node, you must remove
- * it as the target of this node.
+ * The reference to the target is weak, allowing the target node to be removed from the scene
+ * if needed. This node will receive a nodeWasDestroyed: reference if the target node is removed
+ * and deallocated. The default implementation of that method is to set this target property to nil.
  */
-@property(nonatomic, assign) CC3Node* target;
+@property(nonatomic, unsafe_unretained) CC3Node* target;
 
 /**
  * Indicates whether this node is tracking the location of a target node.
@@ -787,7 +777,7 @@ typedef enum {
  * forwardDirection, retrieving the targetLocation comes with two caveats.
  *
  * The first caveat is that calculating a targetLocation requires the global location of
- * this node, which is only calculated when the node's transformMatrix is calculated after
+ * this node, which is only calculated when the node's globalTransformMatrix is calculated after
  * all model updates have been processed. This means that, depending on when you access
  * this property, the calculated targetLocation may be one frame behind the real value.
  * 
@@ -849,12 +839,12 @@ typedef enum {
  * by this node for the purpose of updating the lighting of a contained bump-map
  * texture, instead of rotating to face the light, as normally occurs with tracking.
  * 
- * This property indicates whether this node should update its globalLightLocation
+ * This property indicates whether this node should update its globalLightPosition
  * from the tracked location of the light, instead of rotating to face the light.
  *
  * The initial property is set to NO, indicating that this node will rotate to face
  * the target as it or this node moves. If you have set the target property to a
- * CC3Light instance, and want the bump-map lighting property globalLightLocation
+ * CC3Light instance, and want the bump-map lighting property globalLightPosition
  * to be updated as the light is tracked instead, set this property to YES.
  */
 @property(nonatomic, assign) BOOL isTrackingForBumpMapping;
@@ -883,6 +873,51 @@ typedef enum {
 
 
 #pragma mark Mesh configuration
+
+/**
+ * Indicates whether drawing should be performed in clip-space.
+ *
+ * The clip-space coordinate system is a transformation of the camera frustum, where the camera
+ * looks down the -Z axis, and entire coorinate system is normalized to cover the range +/-1.0
+ * in each of the X, Y & Z dimensions.
+ *
+ * When this property is set to YES, a simple square plane node, with X & Y sides of length 2.0,
+ * centered on the origin and facing the +Z axis will fill the entire view. This makes it very
+ * easy to create backdrops and post-processing effects.
+ *
+ * When this property is set to YES, all combinations of the projection, view, and model matrices
+ * will be set to identity matrices during rendering. The node is effectivly drawn with an
+ * orthographic projection, looking down the negative Z axis, with X & Y axis dimensions
+ * normalized to +/-1.0 each.
+ *
+ * To support this node being rendered in clip-space, setting this property to YES also
+ * makes the following configuration changes to this mesh node:
+ *  - The mesh is replaced with a simple 2D square mesh with sides of length 2.0.
+ *  - The shouldUseLighting property is set to NO.
+ *  - The shouldDisableDepthTest property is set to YES.
+ *  - The shouldDisableDepthMask property is set to YES.
+ *  - The boundingVolume property is set to nil.
+ *
+ * If you want to set the above properties and characteristics to other values, do so after
+ * setting this property.
+ *
+ * Normally, you want this node to completely cover the entire view, which it does by default,
+ * and you do not need to apply any transforms to this node. However, by applying location and
+ * scale transforms, you can configure this node so that it only covers a portion of the view.
+ * In doing so, keep in mind that clip-space, only the X & Y values of the location and scale
+ * properties are used, and that the coordinate system occupies a range between -1 and +1.
+ * In addition, in most cases, these nodes will not normally be included in the normal scene
+ * update cycle, so you should invoke the updateTransformMatrix method on this node after you
+ * have made any transform changes (location or scale).
+ *
+ * Setting the value of this property sets the value of this property in all descendant nodes.
+ *
+ * Querying this property returns YES if any of the descendant mesh nodes have this property
+ * set to YES. Initially, and in most cases, all mesh nodes have this property set to NO.
+ *
+ * The initial value of this property is NO.
+ */
+@property(nonatomic, assign) BOOL shouldDrawInClipSpace;
 
 /**
  * Indicates whether the back faces should be culled on the meshes contained in
@@ -1271,10 +1306,10 @@ typedef enum {
  * constantly re-measuring the bounding volume may be significant, and it may be more
  * effective to set a fixed bounding volume that encompasses the entire possible range
  * of vertex location data, and set the value of this property to YES to stop the
- * bounding volume from being recalculated every time the vertex data is changed.
+ * bounding volume from being recalculated every time the vertex content is changed.
  *
  * See the note for the various subclasses of CC3NodeBoundingVolume
- * (eg- CC3NodeBoundingBoxVolume and CC3NodeSphericalBoundingVolume) to learn how
+ * (eg- CC3NodeBoxBoundingVolume and CC3NodeSphericalBoundingVolume) to learn how
  * to set the properties of the bounding volumes, to fix them to a particular range.
  */
 @property(nonatomic, assign) BOOL shouldUseFixedBoundingVolume;
@@ -1324,7 +1359,7 @@ typedef enum {
  * and setting this property has no effect. Subclasses that performance support
  * statistics collection will override to allow the property to be get and set.
  */
-@property(nonatomic, retain) CC3PerformanceStatistics* performanceStatistics;
+@property(nonatomic, strong) CC3PerformanceStatistics* performanceStatistics;
 
 /**
  * Returns a description of the structure of this node and its descendants,
@@ -1334,7 +1369,7 @@ typedef enum {
  * The description of each node appears on a separate line and is indented
  * according to its depth in the structural hierarchy, starting at this node.
  */
-@property(nonatomic, readonly) NSString* structureDescription;
+@property(nonatomic, strong, readonly) NSString* structureDescription;
 
 /**
  * Appends the description of this node to the specified mutable string, on a new line
@@ -1345,7 +1380,7 @@ typedef enum {
 -(NSString*) appendStructureDescriptionTo: (NSMutableString*) desc withIndent: (NSUInteger) indentLevel;
 
 
-#pragma mark Matierial coloring
+#pragma mark Matierial properties
 
 /**
  * If this value is set to YES, current lighting conditions will be taken into consideration
@@ -1371,11 +1406,6 @@ typedef enum {
  *
  * Setting this property sets the same property on all child nodes.
  *
- * Before setting this property, for this property to have affect on descendant
- * mesh nodes, you must assign a material to each of those nodes using its material
- * property, or assign a texture to those mesh nodes using the texture property,
- * which will automatically create a material to hold the texture.
- *
  * Querying this property returns the average value of querying this property on all child nodes.
  * When querying this value on a large node assembly, be aware that this may be time-consuming.
  */
@@ -1385,12 +1415,6 @@ typedef enum {
  * The diffuse color of the materials of this node.
  *
  * Setting this property sets the same property on all child nodes.
- *
- * Before setting this property, for this property to have affect on descendant
- * mesh nodes, you must assign a material to each of those nodes using its material
- * property, or assign a texture to those mesh nodes using the texture property,
- * which will automatically create a material to hold the texture.
- *
  * Querying this property returns the average value of querying this property on all child nodes.
  * When querying this value on a large node assembly, be aware that this may be time-consuming.
  */
@@ -1400,12 +1424,6 @@ typedef enum {
  * The specular color of the materials of this node.
  *
  * Setting this property sets the same property on all child nodes.
- *
- * Before setting this property, for this property to have affect on descendant
- * mesh nodes, you must assign a material to each of those nodes using its material
- * property, or assign a texture to those mesh nodes using the texture property,
- * which will automatically create a material to hold the texture.
- *
  * Querying this property returns the average value of querying this property on all child nodes.
  * When querying this value on a large node assembly, be aware that this may be time-consuming.
  */
@@ -1415,35 +1433,172 @@ typedef enum {
  * The emission color of the materials of this node.
  *
  * Setting this property sets the same property on all child nodes.
- *
- * Before setting this property, for this property to have affect on descendant
- * mesh nodes, you must assign a material to each of those nodes using its material
- * property, or assign a texture to those mesh nodes using the texture property,
- * which will automatically create a material to hold the texture.
- *
  * Querying this property returns the average value of querying this property on all child nodes.
  * When querying this value on a large node assembly, be aware that this may be time-consuming.
  */
 @property(nonatomic, assign) ccColor4F emissionColor;
 
 /**
- * When a mesh node is textured with a DOT3 bump-map (normal map), this property indicates
- * the location, in the global coordinate system, of the light that is illuminating the node.
+ * The shininess of the materials of this node.
+ *
+ * Setting this property sets the same property on all child nodes.
+ * Querying this property returns the average value of querying this property on all child nodes.
+ * When querying this value on a large node assembly, be aware that this may be time-consuming.
+ */
+@property(nonatomic, assign) GLfloat shininess;
+
+/**
+ * The reflectivity of the materials of this node.
+ *
+ * Setting this property sets the same property on all child nodes.
+ * Querying this property returns the average value of querying this property on all child nodes.
+ * When querying this value on a large node assembly, be aware that this may be time-consuming.
+ */
+@property(nonatomic, assign) GLfloat reflectivity;
+
+/**
+ * Convenience property for setting the texture covering all descendant mesh nodes.
+ *
+ * Setting the value of this property sets the same property in all descendant mesh nodes.
+ * Querying the value of this property returns the first non-nil texture from a descendant mesh node.
+ */
+@property(nonatomic, strong) CC3Texture* texture;
+
+/**
+ * Convenience method for adding a texture covering all descendant mesh nodes.
+ *
+ * Invoking this method invokes the same method on all descendant mesh nodes.
+ */
+-(void) addTexture: (CC3Texture*) aTexture;
+
+/**
+ * When a mesh node is textured with a DOT3 bump-map (normal map) in object-space, this property
+ * indicates the position, in the global homogeneous coordinate system, of the light that is
+ * illuminating the node.
  * 
  * When setting this property, this implementation sets the same property in all child nodes.
- * Set the value of this property to the globalLocation of the light source. Bump-map textures
- * may interact with only one light source.
+ * Set the value of this property to the globalHomogeneousPosition of the light source.
+ * Object-space bump-map textures may interact with only one light source.
  *
  * This property only needs to be set, and will only have effect when set, on individual
- * CC3MeshNodes whose material is configured for bump-mapping. This property is provided in
- * CC3Node as a convenience to automatically traverse the node structural hierarchy to set
- * this property in all descendant nodes.
+ * CC3MeshNodes whose material is configured for bump-mapping using object-space bump-mapping.
+ * This property is NOT required to be set when using tangent-space bump-mapping using tangent
+ * and/or bitangent vertex attributes under OpenGL ES 2.0.
  *
- * When reading this property, this implementation returns the value of the same property
- * from the first descendant node that is a CC3MeshNode and that contains a texture configured
- * for bump-mapping. Otherwise, this implementation returns kCC3VectorZero.
+ * This property is provided in CC3Node as a convenience to automatically traverse the node
+ * structural hierarchy to set this property in all descendant nodes.
+ *
+ * When reading this property, this implementation returns the value of the same property from
+ * the first descendant node that is a CC3MeshNode and that contains a texture unit configured
+ * for object-space bump-mapping. Otherwise, this implementation returns kCC3Vector4Zero.
+ *
+ * This property is primarily used for setting the global light position. When reading the
+ * value of this property, be aware that the position is converted to a local direction within
+ * each node. When this property is read, it is always returned as a direction (W = 0).
  */
-@property(nonatomic, assign) CC3Vector globalLightLocation;
+@property(nonatomic, assign) CC3Vector4 globalLightPosition;
+
+/** @deprecated Use globalLightPosition instead. */
+@property(nonatomic, assign) CC3Vector globalLightLocation DEPRECATED_ATTRIBUTE;
+
+/**
+ * The GLSL program context containing the GLSL program (vertex & fragment shaders) used to
+ * decorate the descendant nodes.
+ *
+ * See the notes about the same property in CC3MeshNode, for more info about the use of shader contexts.
+ *
+ * Setting this property causes each descendant to use the specified program context. Querying
+ * this property returns the value of the same property from the first descendant node that has
+ * a non-nil value in its shaderContext property.
+ *
+ * Within each descendant node, the program is held in the program context in the shaderContext
+ * property. When using this property to set the program context into each descendant, all
+ * descendant nodes will share the same program context. Uniform overrides added to that shared
+ * context will be used by all descendant nodes. As an alternative, the shaderProgram property
+ * of this node can be used to cause each descendant node to use the same program, but each node
+ * will wrap that program in a unique program context. This allows separate uniform overrides to
+ * be used on each descendant node.
+ *
+ * This property is used only when running under OpenGL ES 2.
+ */
+@property(nonatomic, strong) CC3ShaderContext* shaderContext;
+
+/**
+ * The GLSL program (vertex & fragment shaders) used to decorate the descendant mesh nodes.
+ *
+ * See the notes about the same property in CC3MeshNode, for more info about the use of shader programs.
+ *
+ * Setting this property causes each descendant to use the specified program. Querying this
+ * property returns the value of the same property from the first descendant node that has
+ * a non-nil value in its shaderProgram property.
+ *
+ * Within each descendant mesh node, the program is held in the program context in the shaderContext
+ * property. When using this property to set the program into each descendant, a new unique context
+ * will be created in each node that does not already have a context. In this way, each node may
+ * have its own context, which can be customized separately. As an alternative, the shaderContext
+ * property of this node can be used to ensure that each descendant node will not only use the
+ * same program, but will share a shader context as well. That will ensure that customizations and
+ * uniform overrides made to the shader context will be applied to all nodes that share the context.
+ *
+ * This property is used only when running under OpenGL ES 2.
+ */
+@property(nonatomic, strong) CC3ShaderProgram* shaderProgram;
+
+/**
+ * Selects an appropriate shaders for each descendant mesh node.
+ *
+ * When running under a programmable rendering pipeline, such as OpenGL ES 2.0 or OpenGL, all
+ * mesh nodes require a shaders to be assigned. This can be done directly using the shaderProgram 
+ * property. Or shaders can be selected automatically based on the characteristics of the mesh node.
+ *
+ * You can use this method to cause a shaders to be automatically selected for each descendant
+ * mesh node that does not already have shaders assigned. You can assign shader programs to some
+ * specific mesh nodes, and then invoke this method on the CC3Scene to have shaders assigned to
+ * the remaining mesh nodes.
+ *
+ * Since all mesh nodes require shaders, if this method is not invoked, and a shader program
+ * was not manually assigned via the shaderProgram property, a shaders will be automatically
+ * assigned to each mesh node the first time it is rendered. The automatic selection is the
+ * same, whether this method is invoked, or the selection is made lazily. However, if the
+ * shaders must be loaded and compiled, there can be a noticable pause in drawing a mesh node
+ * for the first time if lazy assignment is used.
+ *
+ * Shader selection is driven by the characteristics of each mesh node and its material, 
+ * including the number of textures, whether alpha testing is used, etc. If you change any
+ * of these characteristics that affect the shader selection, you can invoke the removeShaders 
+ * method to cause different shaders to be selected for each mesh node, based on the new mesh
+ * node and material characteristics. You can also invoke the removeLocalShaders on a specific
+ * mesh node to cause only the shader program of that mesh node to be cleared.
+ *
+ * Shader selection is handled by an implementation of the CC3ShaderMatcher held in the 
+ * CC3ShaderProgram shaderMatcher class-side property. The application can therefore customize
+ * shader program selection by establishing a custom instance in the CC3ShaderProgram 
+ * shaderMatcher class-side property
+ */
+-(void) selectShaders;
+
+/**
+ * Removes the shaders from each descendant mesh node, allowing new shaders to be selected for
+ * each mesh node, either directly by subsequently invoking the selectShaders method, or 
+ * automatically the next time each mesh node is drawn.
+ *
+ * Shader selection is driven by the characteristics of each mesh node and its material,
+ * including the number of textures, whether alpha testing is used, etc. If you change any
+ * of these characteristics that affect the shader selection, you can invoke the removeShaders
+ * method to cause different shaders to be selected for each mesh node, based on the new mesh
+ * node and material characteristics. You can also invoke the removeLocalShaders on a specific
+ * mesh node to cause only the shader program of that mesh node to be cleared.
+ *
+ * This method is equivalent to setting the shaderProgram property to nil on each descendant
+ * mesh node.
+ */
+-(void) removeShaders;
+
+/** @deprecated Renamed to selectShaders. */
+-(void) selectShaderPrograms DEPRECATED_ATTRIBUTE;
+
+/** @deprecated Renamed to removeShaders. */
+-(void) clearShaderPrograms DEPRECATED_ATTRIBUTE;
 
 
 #pragma mark CCRGBAProtocol and CCBlendProtocol support
@@ -1486,6 +1641,24 @@ typedef enum {
 @property(nonatomic, assign) GLubyte opacity;
 
 /**
+ * Implementation of the CCBlendProtocol blendFunc property.
+ *
+ * This is a convenience property that gets and sets the same property of the material
+ * of all descendant nodes
+ *
+ * Querying this property returns the value of the same property from the first
+ * descendant node that supports materials, or {GL_ONE, GL_ZERO} if no descendant
+ * nodes support materials. Setting this property sets the same property on the
+ * materials in all descendant nodes.
+ *
+ * Before setting this property, for this property to have affect on descendant
+ * mesh nodes, you must assign a material to each of those nodes using its material
+ * property, or assign a texture to those mesh nodes using the texture property,
+ * which will automatically create a material to hold the texture.
+ */
+@property(nonatomic, assign) ccBlendFunc blendFunc;
+
+/**
  * Indicates whether the content of this node and its descendants is opaque.
  *
  * Returns NO if at least one descendant is not opaque, as determined by its isOpaque
@@ -1508,22 +1681,17 @@ typedef enum {
 @property(nonatomic, assign) BOOL isOpaque;
 
 /**
- * Implementation of the CCBlendProtocol blendFunc property.
+ * Indicates whether blending should be applied even when the material is at full opacity
+ * on each descendant node.
  *
- * This is a convenience property that gets and sets the same property of the material
- * of all descendant nodes
+ * Setting the value of this property sets the same property on the material of each
+ * descendant mesh node. Reading this property returns YES if this property is set to
+ * YES in the material of any descendant node, otherwise this method returns NO.
  *
- * Querying this property returns the value of the same property from the first
- * descendant node that supports materials, or {GL_ONE, GL_ZERO} if no descendant
- * nodes support materials. Setting this property sets the same property on the
- * materials in all descendant nodes.
- *
- * Before setting this property, for this property to have affect on descendant
- * mesh nodes, you must assign a material to each of those nodes using its material
- * property, or assign a texture to those mesh nodes using the texture property,
- * which will automatically create a material to hold the texture.
+ * See the CC3Material shouldBlendAtFullOpacity property for a description of the
+ * effect this property has on blending when changing the opacity of a node.
  */
-@property(nonatomic, assign) ccBlendFunc blendFunc;
+@property(nonatomic, assign) BOOL shouldBlendAtFullOpacity;
 
 /**
  * For descendant mesh nodes whose mesh contains per-vertex color content, this property indicates
@@ -1655,20 +1823,20 @@ typedef enum {
  * If a descendant node did not retain the vertex content locally, then after this method is invoked,
  * no vertex content will be available for the node, and the node will no longer be drawn. For this
  * reason, great care should be taken when using this method in combination with releasing the local
- * copy of the vertex data.
+ * copy of the vertex content.
  *
  * To delete the GL buffers of a particular node without deleting those of any descendant nodes,
  * use this method on the mesh node's mesh, instead of on the mesh node itself.
  *
- * The local copy of the vertex content in main memory can be released via the releaseRedundantData
+ * The local copy of the vertex content in main memory can be released via the releaseRedundantContent
  * method. To retain the local copy of the vertex content for any particular node, invoke one or
- * more of the retainVertex... family of methods. See the notes of the releaseRedundantData for more
+ * more of the retainVertex... family of methods. See the notes of the releaseRedundantContent for more
  * info regarding retaining and releasing the local copy of the vertex content in app memory. 
  */
 -(void) deleteGLBuffers;
 
 /**
- * Once the vertex data has been buffered into a GL vertex buffer object (VBO)
+ * Once the vertex content has been buffered into a GL vertex buffer object (VBO)
  * within the GL engine, via the createGLBuffer method, this method can be used
  * to release the data in main memory that is now redundant from all meshes that
  * have been buffered to the GL engine.
@@ -1678,28 +1846,35 @@ typedef enum {
  * the GL engine. It is safe to invokde this method even if createGLBuffer has not
  * been invoked, and even if VBO buffering was unsuccessful.
  *
- * To exempt vertex data from release, invoke one or more of the following methods
+ * To exempt vertex content from release, invoke one or more of the following methods
  * once on nodes for which data should be retained, before invoking this method:
  *   - retainVertexContent
  *   - retainVertexLocations
  *   - retainVertexNormals
+ *   - retainVertexTangents
+ *   - retainVertexBitangents
  *   - retainVertexColors
  *   - retainVertexTextureCoordinates
+ *   - retainVertexBoneWeights
+ *   - retainVertexBoneIndices
+ *   - retainVertexPointSizes
  *   - retainVertexIndices
  *
  * For example, sophisticated physics engines and collision detection algorithms may make
  * use of vertex location data in main memory. Or a rippling texture animation might retain
  * texture coordinate data in order to dyamically adjust the texture coordinate data.
  *
- * Normally, you would invoke the retainVertex... methods on specific individual
- * nodes, and then invoke this method on the parent node of a node assembly,
- * or on the CC3Scene.
+ * Normally, you would invoke the retainVertex... methods on specific individual nodes, and
+ * then invoke this method on the parent node of a node assembly, or on the CC3Scene.
  */
--(void) releaseRedundantData;
+-(void) releaseRedundantContent;
+
+/** @deprecated Renamed to releaseRedundantContent. */
+-(void) releaseRedundantData DEPRECATED_ATTRIBUTE;
 
 /**
- * Convenience method to cause all vertex content data to be retained in application
- * memory when releaseRedundantData is invoked, even if it has been buffered to a GL VBO.
+ * Convenience method to cause all vertex content to be retained in application
+ * memory when releaseRedundantContent is invoked, even if it has been buffered to a GL VBO.
  *
  * All vertex content, such as location, normal, color, texture coordinates, point size,
  * weights and matrix indices will be retained.
@@ -1710,73 +1885,133 @@ typedef enum {
 -(void) retainVertexContent;
 
 /**
- * Convenience method to cause the vertex location data of this node and all descendant
- * nodes to be retained in application memory when releaseRedundantData is invoked, even
+ * Convenience method to cause the vertex location content of this node and all descendant
+ * nodes to be retained in application memory when releaseRedundantContent is invoked, even
  * if it has been buffered to a GL VBO.
  *
- * Use this method if you require access to vertex data after the data has been
+ * Use this method if you require access to vertex content after the data has been
  * buffered to a GL VBO.
  *
- * Only the vertex locations will be retained. Any other vertex data, such as normals,
+ * Only the vertex locations will be retained. Any other vertex content, such as normals,
  * or texture coordinates, that has been buffered to GL VBO's, will be released from
- * application memory when releaseRedundantData is invoked.
+ * application memory when releaseRedundantContent is invoked.
  */
 -(void) retainVertexLocations;
 
 /**
- * Convenience method to cause the vertex normal data of this node and all descendant
- * nodes to be retained in application memory when releaseRedundantData is invoked,
+ * Convenience method to cause the vertex normal content of this node and all descendant
+ * nodes to be retained in application memory when releaseRedundantContent is invoked,
  * even if it has been buffered to a GL VBO.
  *
- * Use this method if you require access to vertex data after the data has been
+ * Use this method if you require access to vertex content after the data has been
  * buffered to a GL VBO.
  *
- * Only the vertex normals will be retained. Any other vertex data, such as locations,
+ * Only the vertex normals will be retained. Any other vertex content, such as locations,
  * or texture coordinates, that has been buffered to GL VBO's, will be released from
- * application memory when releaseRedundantData is invoked.
+ * application memory when releaseRedundantContent is invoked.
  */
 -(void) retainVertexNormals;
 
 /**
- * Convenience method to cause the vertex color data of this node and all descendant
- * nodes to be retained in application memory when releaseRedundantData is invoked,
+ * Convenience method to cause the vertex tangent content of this node and all descendant
+ * nodes to be retained in application memory when releaseRedundantContent is invoked,
  * even if it has been buffered to a GL VBO.
  *
- * Use this method if you require access to vertex data after the data has been
+ * Use this method if you require access to vertex content after the data has been
  * buffered to a GL VBO.
  *
- * Only the vertex colors will be retained. Any other vertex data, such as locations,
+ * Only the vertex normals will be retained. Any other vertex content, such as locations,
  * or texture coordinates, that has been buffered to GL VBO's, will be released from
- * application memory when releaseRedundantData is invoked.
+ * application memory when releaseRedundantContent is invoked.
+ */
+-(void) retainVertexTangents;
+
+/**
+ * Convenience method to cause the vertex bitangent content of this node and all descendant
+ * nodes to be retained in application memory when releaseRedundantContent is invoked,
+ * even if it has been buffered to a GL VBO.
+ *
+ * Use this method if you require access to vertex content after the data has been
+ * buffered to a GL VBO.
+ *
+ * Only the vertex normals will be retained. Any other vertex content, such as locations,
+ * or texture coordinates, that has been buffered to GL VBO's, will be released from
+ * application memory when releaseRedundantContent is invoked.
+ */
+-(void) retainVertexBitangents;
+
+/**
+ * Convenience method to cause the vertex color content of this node and all descendant
+ * nodes to be retained in application memory when releaseRedundantContent is invoked,
+ * even if it has been buffered to a GL VBO.
+ *
+ * Use this method if you require access to vertex content after the data has been
+ * buffered to a GL VBO.
+ *
+ * Only the vertex colors will be retained. Any other vertex content, such as locations,
+ * or texture coordinates, that has been buffered to GL VBO's, will be released from
+ * application memory when releaseRedundantContent is invoked.
  */
 -(void) retainVertexColors;
 
 /**
- * Convenience method to cause the vertex texture coordinate data of this node and
+ * Convenience method to cause the vertex bone weight content of this node and all descendant
+ * nodes  to be retained in application memory when releaseRedundantContent is invoked,
+ * even if it has been buffered to a GL VBO.
+ *
+ * Only the vertex bone weight will be retained. Any other vertex content, such as locations,
+ * or texture coordinates, that has been buffered to GL VBO's, will be released from
+ * application memory when releaseRedundantContent is invoked.
+ */
+-(void) retainVertexBoneWeights;
+
+/**
+ * Convenience method to cause the vertex bone index content of this node and all descendant
+ * nodes to be retained in application memory when releaseRedundantContent is invoked, even if
+ * it has been buffered to a GL VBO.
+ *
+ * Only the vertex bone index will be retained. Any other vertex content, such as locations,
+ * or texture coordinates, that has been buffered to GL VBO's, will be released from
+ * application memory when releaseRedundantContent is invoked.
+ */
+-(void) retainVertexBoneIndices;
+
+/**
+ * Convenience method to cause the vertex point size content to be retained in application
+ * memory when releaseRedundantContent is invoked, even if it has been buffered to a GL VBO.
+ *
+ * Only the vertex point sizes will be retained. Any other vertex content, such as locations,
+ * or texture coordinates, that has been buffered to GL VBO's, will be released from
+ * application memory when releaseRedundantContent is invoked.
+ */
+-(void) retainVertexPointSizes;
+
+/**
+ * Convenience method to cause the vertex texture coordinate content of this node and
  * all descendant nodes, for all texture units, used by this mesh to be retained in
- * application memory when releaseRedundantData is invoked, even if it has been
+ * application memory when releaseRedundantContent is invoked, even if it has been
  * buffered to a GL VBO.
  *
- * Use this method if you require access to vertex data after the data has been
+ * Use this method if you require access to vertex content after the data has been
  * buffered to a GL VBO.
  *
- * Only the vertex texture coordinates will be retained. Any other vertex data, such as
+ * Only the vertex texture coordinates will be retained. Any other vertex content, such as
  * locations, or normals, that has been buffered to GL VBO's, will be released from
- * application memory when releaseRedundantData is invoked.
+ * application memory when releaseRedundantContent is invoked.
  */
 -(void) retainVertexTextureCoordinates;
 
 /**
- * Convenience method to cause the vertex index data of this node and all descendant
- * nodes to be retained in application memory when releaseRedundantData is invoked,
+ * Convenience method to cause the vertex index content of this node and all descendant
+ * nodes to be retained in application memory when releaseRedundantContent is invoked,
  * even if it has been buffered to a GL VBO.
  *
- * Use this method if you require access to vertex data after the data has been
+ * Use this method if you require access to vertex content after the data has been
  * buffered to a GL VBO.
  *
- * Only the vertex indices will be retained. Any other vertex data, such as locations,
+ * Only the vertex indices will be retained. Any other vertex content, such as locations,
  * or texture coordinates, that has been buffered to GL VBO's, will be released from
- * application memory when releaseRedundantData is invoked.
+ * application memory when releaseRedundantContent is invoked.
  */
 -(void) retainVertexIndices;
 
@@ -1788,13 +2023,13 @@ typedef enum {
  * This method does NOT stop vertex index data from being buffered. If you meshes use vertex
  * indices, and you don't want them buffered, use the doNotBufferVertexIndices method as well.
  *
- * This method causes the vertex data to be retained in application memory, so, if you have
+ * This method causes the vertex content to be retained in application memory, so, if you have
  * invoked this method, you do NOT also need to invoke the retainVertexContent method.
  */
 -(void) doNotBufferVertexContent;
 
 /**
- * Convenience method to cause the vertex location data of this node and all
+ * Convenience method to cause the vertex location content of this node and all
  * descendant nodes to be skipped when createGLBuffers is invoked. The vertex
  * data is not buffered to a a GL VBO, is retained in application memory, and
  * is submitted to the GL engine on each frame render.
@@ -1803,14 +2038,14 @@ typedef enum {
  * data, such as normals, or texture coordinates, will be buffered to a GL VBO
  * when createGLBuffers is invoked.
  *
- * This method causes the vertex data to be retained in application memory,
+ * This method causes the vertex content to be retained in application memory,
  * so, if you have invoked this method, you do NOT also need to invoke the
  * retainVertexLocations method.
  */
 -(void) doNotBufferVertexLocations;
 
 /**
- * Convenience method to cause the vertex normal data of this node and all
+ * Convenience method to cause the vertex normal content of this node and all
  * descendant nodes to be skipped when createGLBuffers is invoked. The vertex
  * data is not buffered to a a GL VBO, is retained in application memory, and
  * is submitted to the GL engine on each frame render.
@@ -1819,14 +2054,46 @@ typedef enum {
  * data, such as locations, or texture coordinates, will be buffered to a GL
  * VBO when createGLBuffers is invoked.
  *
- * This method causes the vertex data to be retained in application memory,
+ * This method causes the vertex content to be retained in application memory,
  * so, if you have invoked this method, you do NOT also need to invoke the
  * retainVertexNormals method.
  */
 -(void) doNotBufferVertexNormals;
 
 /**
- * Convenience method to cause the vertex color data of this node and all
+ * Convenience method to cause the vertex tangent content of this node and all
+ * descendant nodes to be skipped when createGLBuffers is invoked. The vertex
+ * data is not buffered to a a GL VBO, is retained in application memory, and
+ * is submitted to the GL engine on each frame render.
+ *
+ * Only the vertex normals will not be buffered to a GL VBO. Any other vertex
+ * data, such as locations, or texture coordinates, will be buffered to a GL
+ * VBO when createGLBuffers is invoked.
+ *
+ * This method causes the vertex content to be retained in application memory,
+ * so, if you have invoked this method, you do NOT also need to invoke the
+ * retainVertexNormals method.
+ */
+-(void) doNotBufferVertexTangents;
+
+/**
+ * Convenience method to cause the vertex bitangent content of this node and all
+ * descendant nodes to be skipped when createGLBuffers is invoked. The vertex
+ * data is not buffered to a a GL VBO, is retained in application memory, and
+ * is submitted to the GL engine on each frame render.
+ *
+ * Only the vertex normals will not be buffered to a GL VBO. Any other vertex
+ * data, such as locations, or texture coordinates, will be buffered to a GL
+ * VBO when createGLBuffers is invoked.
+ *
+ * This method causes the vertex content to be retained in application memory,
+ * so, if you have invoked this method, you do NOT also need to invoke the
+ * retainVertexNormals method.
+ */
+-(void) doNotBufferVertexBitangents;
+
+/**
+ * Convenience method to cause the vertex color content of this node and all
  * descendant nodes to be skipped when createGLBuffers is invoked. The vertex
  * data is not buffered to a a GL VBO, is retained in application memory, and
  * is submitted to the GL engine on each frame render.
@@ -1835,31 +2102,74 @@ typedef enum {
  * data, such as locations, or texture coordinates, will be buffered to a GL
  * VBO when createGLBuffers is invoked.
  *
- * This method causes the vertex data to be retained in application memory,
+ * This method causes the vertex content to be retained in application memory,
  * so, if you have invoked this method, you do NOT also need to invoke the
  * retainVertexColors method.
  */
 -(void) doNotBufferVertexColors;
 
 /**
- * Convenience method to cause the vertex texture coordinate data of this
+ * Convenience method to cause the vertex bone weight content of this node and all descendant
+ * nodes to be skipped when createGLBuffers is invoked. The vertex content is not buffered
+ * to a GL VBO, is retained in application memory, and is submitted to the GL engine on
+ * each frame render.
+ *
+ * Only the vertex bone weights will not be buffered to a GL VBO. Any other vertex content, such
+ * as locations, or texture coordinates, will be buffered to a GL VBO when createGLBuffers
+ * is invoked.
+ *
+ * This method causes the vertex content to be retained in application memory, so, if you have
+ * invoked this method, you do NOT also need to invoke the retainVertexBoneWeights method.
+ */
+-(void) doNotBufferVertexBoneWeights;
+
+/**
+ * Convenience method to cause the vertex bone index content of this node and all
+ * descendant nodes to be skipped when createGLBuffers is invoked. The vertex content
+ * is not buffered to a GL VBO, is retained in application memory, and is submitted
+ * to the GL engine on each frame render.
+ *
+ * Only the vertex bone indices will not be buffered to a GL VBO. Any other vertex content,
+ * such as locations, or texture coordinates, will be buffered to a GL VBO when
+ * createGLBuffers is invoked.
+ *
+ * This method causes the vertex content to be retained in application memory, so, if you have
+ * invoked this method, you do NOT also need to invoke the retainVertexBoneIndices method.
+ */
+-(void) doNotBufferVertexBoneIndices;
+
+/**
+ * Convenience method to cause the vertex point size content to be skipped when createGLBuffers
+ * is invoked. The vertex content is not buffered to a GL VBO, is retained in application memory,
+ * and is submitted to the GL engine on each frame render.
+ *
+ * Only the vertex point sizes will not be buffered to a GL VBO. Any other vertex content, such as
+ * locations, or texture coordinates, will be buffered to a GL VBO when createGLBuffers is invoked.
+ *
+ * This method causes the vertex content to be retained in application memory, so, if you have
+ * invoked this method, you do NOT also need to invoke the retainVertexPointSizes method.
+ */
+-(void) doNotBufferVertexPointSizes;
+
+/**
+ * Convenience method to cause the vertex texture coordinate content of this
  * node and all descendant nodes, for all texture units used by those nodes,
- * to be skipped when createGLBuffers is invoked. The vertex data is not
+ * to be skipped when createGLBuffers is invoked. The vertex content is not
  * buffered to a a GL VBO, is retained in application memory, and is submitted
  * to the GL engine on each frame render.
  *
  * Only the vertex texture coordinates will not be buffered to a GL VBO.
- * Any other vertex data, such as locations, or texture coordinates, will
+ * Any other vertex content, such as locations, or texture coordinates, will
  * be buffered to a GL VBO when createGLBuffers is invoked.
  *
- * This method causes the vertex data to be retained in application memory,
+ * This method causes the vertex content to be retained in application memory,
  * so, if you have invoked this method, you do NOT also need to invoke the
  * retainVertexTextureCoordinates method.
  */
 -(void) doNotBufferVertexTextureCoordinates;
 
 /**
- * Convenience method to cause the vertex index data of this node and all
+ * Convenience method to cause the vertex index content of this node and all
  * descendant nodes to be skipped when createGLBuffers is invoked. The vertex
  * data is not buffered to a a GL VBO, is retained in application memory, and
  * is submitted to the GL engine on each frame render.
@@ -1868,31 +2178,47 @@ typedef enum {
  * data, such as locations, or texture coordinates, will be buffered to a GL
  * VBO when createGLBuffers is invoked.
  *
- * This method causes the vertex data to be retained in application memory,
+ * This method causes the vertex content to be retained in application memory,
  * so, if you have invoked this method, you do NOT also need to invoke the
  * retainVertexColors method.
  */
 -(void) doNotBufferVertexIndices;
 
+/** *@deprecated Renamed to retainVertexBoneWeights. */
+-(void) retainVertexWeights DEPRECATED_ATTRIBUTE;
 
-#pragma mark Texture alignment
+/** *@deprecated Renamed to retainVertexBoneIndices. */
+-(void) retainVertexMatrixIndices DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to doNotBufferVertexBoneWeights. */
+-(void) doNotBufferVertexWeights DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to doNotBufferVertexBoneIndices. */
+-(void) doNotBufferVertexMatrixIndices DEPRECATED_ATTRIBUTE;
+
+
+#pragma mark Texture and normal alignment
+
+/** Reverses the direction of all of the normals in the meshes of all descendant nodes. */
+-(void) flipNormals;
 
 /**
  * Indicates whether the texture coordinates of the meshes of the descendants
  * expect that the texture was flipped upside-down during texture loading.
  * 
- * The vertical axis of the coordinate system of OpenGL is inverted relative to
- * the iOS view coordinate system. This results in textures from most file formats
- * being oriented upside-down, relative to the OpenGL coordinate system. All file
- * formats except PVR format will be oriented upside-down after loading.
+ * The vertical axis of the coordinate system of OpenGL is inverted relative to the
+ * CoreGraphics view coordinate system. As a result, some texture file formats may be
+ * loaded upside down. Most common file formats, including JPG, PNG & PVR are loaded
+ * right-way up, but using proprietary texture formats developed for other platforms
+ * may result in textures being loaded upside-down.
  *
  * For each descendant mesh node, the value of this property is used in
- * combination with the value of the  isFlippedVertically property of a texture
+ * combination with the value of the  isUpsideDown property of a texture
  * to determine whether the texture will be oriented correctly when displayed
  * using these texture coordinates.
  *
  * When a texture or material is assigned to a mesh node, the value of this
- * property is compared with the isFlippedVertically property of the texture to
+ * property is compared with the isUpsideDown property of the texture to
  * automatically determine whether the texture coordinates of the mesh need to
  * be flipped vertically in order to display the texture correctly. If needed,
  * the texture coordinates will be flipped automatically. As part of that inversion,
@@ -1903,7 +2229,7 @@ typedef enum {
  * any descendant mesh node returns YES, otherwise this property will return NO.
  *
  * The initial value of this property is set when the underlying mesh texture
- * coordinates are built or loaded. See the same property on the CC3Resource
+ * coordinates are built or loaded. See the same property on the CC3NodesResource
  * class to understand how this property is set during mesh resource loading.
  *
  * Generally, the application never has need to change the value of this property.
@@ -1961,14 +2287,14 @@ typedef enum {
  * This template method is invoked periodically whenever the 3D nodes are to be updated.
  *
  * This method provides this node with an opportunity to perform update activities before any
- * changes are applied to the transformMatrix of the node. The similar and complimentary method
- * updateAfterTransform: is automatically invoked after the transformMatrix has been recalculated.
+ * changes are applied to the globalTransformMatrix of the node. The similar and complimentary method
+ * updateAfterTransform: is automatically invoked after the globalTransformMatrix has been recalculated.
  * If you need to make changes to the transform properties (location, rotation, scale) of the node,
  * or any child nodes, you should override this method to perform those changes.
  *
  * The global transform properties of a node (globalLocation, globalRotation, globalScale)
  * will not have accurate values when this method is run, since they are only valid after
- * the transformMatrix has been updated. If you need to make use of the global properties
+ * the globalTransformMatrix has been updated. If you need to make use of the global properties
  * of a node (such as for collision detection), override the udpateAfterTransform: method
  * instead, and access those properties there.
  *
@@ -2007,19 +2333,19 @@ typedef enum {
  * This template method is invoked periodically whenever the 3D nodes are to be updated.
  *
  * This method provides this node with an opportunity to perform update activities after
- * the transformMatrix of the node has been recalculated. The similar and complimentary
- * method updateBeforeTransform: is automatically invoked before the transformMatrix
+ * the globalTransformMatrix of the node has been recalculated. The similar and complimentary
+ * method updateBeforeTransform: is automatically invoked before the globalTransformMatrix
  * has been recalculated.
  *
  * The global transform properties of a node (globalLocation, globalRotation, globalScale)
  * will have accurate values when this method is run, since they are only valid after the
- * transformMatrix has been updated. If you need to make use of the global properties
+ * globalTransformMatrix has been updated. If you need to make use of the global properties
  * of a node (such as for collision detection), override this method.
  *
- * Since the transformMatrix has already been updated when this method is invoked, if
+ * Since the globalTransformMatrix has already been updated when this method is invoked, if
  * you override this method and make any changes to the transform properties (location,
  * rotation, scale) of any node, you should invoke the updateTransformMatrices method of
- * that node, to have its transformMatrix, and those of its child nodes, recalculated.
+ * that node, to have its globalTransformMatrix, and those of its child nodes, recalculated.
  *
  * This abstract template implementation does nothing. Subclasses that need access to
  * their global transform properties will override accordingly. Subclasses that override
@@ -2083,19 +2409,19 @@ typedef enum {
 #pragma mark Transformations
 
 /**
- * A list of objects that have requested that they be notified whenever the
- * transform of this node has changed.
+ * Returns a copy of the collection of objects that have requested that they be notified 
+ * whenever the transform of this node has changed, which occurs when one of the transform 
+ * properties (location, rotation & scale) of this node, or any of its structural ancestor
+ * nodes, changes.
  *
- * This occurs when one of the transform properties (location, rotation & scale)
- * of this node, or any of its structural ancestor nodes has changed.
+ * Each object in the returned collection implements the CC3NodeTransformListenerProtocol,
+ * and will be sent the nodeWasTransformed: notification message when the transform of this
+ * node changes.
  *
- * Each listener in this list will be sent the nodeWasTransformed: notification
- * message when the transformMatrix of this node is recalculated, or is set directly.
- *
- * Objects can be added to this list by using the addTransformListener: method.
- *
- * This property will be nil if no objects have been added via addTransformListener:
- * method, or if they have all been subsequently removed.
+ * Objects can be added to this collection by using the addTransformListener: method, and
+ * removed using the removeTransformListener: method. This property returns a copy of the
+ * collection stored in this node. You can safely invoke the addTransformListener: or 
+ * removeTransformListener: methods while iterating the returned collection.
  *
  * Transform listeners are not retained. Each listener should know who it has subscribed
  * to, and must remove itself as a listener (using the removeTransformListener: method)
@@ -2105,7 +2431,7 @@ typedef enum {
  * copied. If you copy a node and want its listeners to also listen to the copied node,
  * you must deliberately add them to the new node.
  */
-@property(nonatomic, readonly) CCArray* transformListeners;
+@property(nonatomic, strong, readonly) NSSet* transformListeners;
 
 /**
  * Indicates that the specified listener object wishes to be notified whenever
@@ -2115,7 +2441,7 @@ typedef enum {
  * of this node, or any of its structural ancestor nodes has changed.
  *
  * The listener will be sent the nodeWasTransformed: notification message whenever
- * the transformMatrix of this node is recalculated, or is set directly.
+ * the globalTransformMatrix of this node is recalculated, or is set directly.
  *
  * Once added by this method, the newly added listener is immediately sent the
  * nodeWasTransformed: notification message, so that the listener is aware of
@@ -2171,39 +2497,71 @@ typedef enum {
  */
 -(void) nodeWasDestroyed: (CC3Node*) aNode;
 
-
 /**
- * The transformation matrix derived from the location, rotation and scale transform properties
- * of this node and any ancestor nodes.
+ * The global transformation matrix derived from the location, rotation and scale transform
+ * properties of this node and all ancestor nodes.
  *
  * This matrix is recalculated automatically when the node is updated.
  *
- * The transformation matrix for each node is global, in that it includes the transforms of
- * all ancestors to the node. This streamlines rendering in that it allows the transform of
- * each drawable node to be applied directly, and allows the order in which drawable nodes
- * are drawn to be independent of the node structural hierarchy.
- *
- * Setting this property udpates the globalLocation and globalScale properties.
+ * This transform matrix includes the transforms of all ancestors to the node. This streamlines
+ * rendering in that it allows the transform of each drawable node to be applied directly, and
+ * allows the order in which drawable nodes are drawn to be independent of the node structural
+ * hierarchy.
  */
-@property(nonatomic, retain) CC3Matrix* transformMatrix;
+@property(nonatomic, strong) CC3Matrix* globalTransformMatrix;
+
+/** 
+ * @deprecated Renamed to globalTransformMatrix.
+ *
+ * This property will be redefined in a future release of cocos3d, and will result in incorrect
+ * behaviour in any legacy code that depends on the older functionality provided by this property.
+ * Convert your code now.
+ */
+@property(nonatomic, strong) CC3Matrix* transformMatrix DEPRECATED_ATTRIBUTE;
 
 /**
- * Returns the transform matrix of the parent node. Returns nil if there is no parent.
+ * Returns the matrix inversion of the globalTransformMatrix.
+ *
+ * This can be useful for converting global transform properties, such as global
+ * location, rotation and scale to the local coordinate system of the node.
+ */
+@property(nonatomic, strong, readonly) CC3Matrix* globalTransformMatrixInverted;
+
+/**
+ * @deprecated Renamed to globalTransformMatrixInverted.
+ *
+ * This property will be redefined in a future release of cocos3d, and will result in incorrect
+ * behaviour in any legacy code that depends on the older functionality provided by this property.
+ * Convert your code now.
+ */
+@property(nonatomic, strong, readonly) CC3Matrix* transformMatrixInverted DEPRECATED_ATTRIBUTE;
+
+/**
+ * Returns the global transform matrix of the parent node, or nil if this node has no parent.
  * 
  * This template property is used by this class to base the transform of this node on
  * the transform of its parent. A subclass may override to return nil if it determines
  * that it wants to ignore the parent transform when calculating its own transform.
  */
-@property(nonatomic, readonly) CC3Matrix* parentTransformMatrix;
+@property(nonatomic, strong, readonly) CC3Matrix* parentGlobalTransformMatrix;
+
+/**
+ * @deprecated Renamed to parentGlobalTransformMatrix.
+ *
+ * This property will be redefined in a future release of cocos3d, and will result in incorrect
+ * behaviour in any legacy code that depends on the older functionality provided by this property.
+ * Convert your code now.
+ */
+@property(nonatomic, strong, readonly) CC3Matrix* parentTransformMatrix DEPRECATED_ATTRIBUTE;
 
 /**
  * Indicates whether any of the transform properties, location, rotation, or scale
- * have been changed, and so the transformMatrix of this node needs to be recalculated.
+ * have been changed, and so the globalTransformMatrix of this node needs to be recalculated.
  *
  * This property is automatically set to YES when one of those properties have been
- * changed, and is reset to NO once the transformMatrix has been recalculated.
+ * changed, and is reset to NO once the globalTransformMatrix has been recalculated.
  *
- * Recalculation of the transformMatrix occurs automatically when the node is updated.
+ * Recalculation of the globalTransformMatrix occurs automatically when the node is updated.
  */
 @property(nonatomic, readonly) BOOL isTransformDirty;
 
@@ -2216,15 +2574,7 @@ typedef enum {
 -(void) markTransformDirty;
 
 /**
- * Returns the matrix inversion of the transformMatrix.
- * 
- * This can be useful for converting global transform properties, such as global
- * location, rotation and scale to the local coordinate system of the node.
- */
-@property(nonatomic, readonly) CC3Matrix* transformMatrixInverted;
-
-/**
- * Applies the transform properties (location, rotation, scale) to the transformMatrix
+ * Applies the transform properties (location, rotation, scale) to the globalTransformMatrix
  * of this node, and all descendant nodes.
  *
  * To ensure that the transforms are accurately applied, this method also automatically
@@ -2235,13 +2585,13 @@ typedef enum {
  * between the invocations of the updateBeforeTransform: and updateAfterTransform: methods.
  *
  * Changes that you make to the transform properties within the updateBeforeTransform:
- * method will automatically be applied to the transformMatrix of the node. Because of this,
+ * method will automatically be applied to the globalTransformMatrix of the node. Because of this,
  * it's best to make any changes to the transform properties in that method.
  *
  * However, if you need to make changes to the transform properties in the
  * updateAfterTransform: method of a node, after you have made all your changes to the
  * node properties, you should then invoke this method on the node, in order to have
- * those changes applied to the transformMatrix.
+ * those changes applied to the globalTransformMatrix.
  *
  * Similarly, if you have updated the transform properties of this node asynchronously
  * through an event callback, and want those changes to be immediately reflected in
@@ -2250,14 +2600,14 @@ typedef enum {
 -(void) updateTransformMatrices;
 
 /**
- * Applies the transform properties (location, rotation, scale) to the transformMatrix
+ * Applies the transform properties (location, rotation, scale) to the globalTransformMatrix
  * of this node, but NOT to any descendant nodes.
  *
  * To ensure that the transforms are accurately applied, this method also automatically
  * ensures that the transform matrices of any ancestor nodes are also updated, if needed,
  * before updating this node and its descendants.
  *
- * Use this method only when you know that you only need the transformMatrix of the
+ * Use this method only when you know that you only need the globalTransformMatrix of the
  * specific node updated, and not the matrices of the decendants of that node, or if
  * you will manually update the transformMatrices of the descendant nodes. If in doubt,
  * use the updateTransformMatrices method instead.
@@ -2276,7 +2626,7 @@ typedef enum {
  * beforehand whether this node or its ancestors are dirty or not before running
  * either of those methods.
  */
-@property(nonatomic, readonly) CC3Node* dirtiestAncestor;
+@property(nonatomic, strong, readonly) CC3Node* dirtiestAncestor;
 
 /**
  * Template method that recalculates the transform matrix of this node from the
@@ -2296,6 +2646,105 @@ typedef enum {
  * of the updating visits.
  */
 -(id) transformVisitorClass;
+
+
+#pragma mark Bounding volumes
+
+/**
+ * The bounding volume of this node. This is used by culling during drawing operations, it can
+ * be used by the application to detect when two nodes intersect in space (collision detection),
+ * and it can be used to determine whether a node intersects a specific location, ray, or plane.
+ *
+ * Different shapes of boundaries are available, permitting tradeoffs between accuracy
+ * and computational processing time.
+ *
+ * By default, nodes do not have a bounding volume. You can add a bounding volume by setting
+ * this property directly, you can invoke the createBoundingVolume method to have a bounding
+ * volume created automatically, or you can invoke the createBoundingVolumes method to have
+ * a bounding volume created for each descendant node that requires one.
+ *
+ * In most cases, each node has its own bounding volume. However, when using bounding volumes
+ * with skin mesh nodes whose vertices are influenced by separate bone nodes, it sometimes makes
+ * sense to share the bounding volume between one of the primary skeleton bones and the skin
+ * mesh node, so that the bone can control the movement and shape of the bounding volume, and
+ * the skin node can use that same bounding volume to determine whether its vertices are
+ * intersecting another bounding volume, including the camera frustum.
+ *
+ * You employ this technique by assigning the bounding volume to the bone first, making it the
+ * primary node for the bounding volume, and then assigning the same bounding volume to the
+ * skin node (or maybe even more than one skin node), to allow the bounding volume to determine
+ * the camera visibility of the skin node, and to detect collisions for the skin node.
+ *
+ * You can make the bounding volume of any node visible by setting the shouldDrawBoundingVolume
+ * property to YES. You can use the shouldDrawAllBoundingVolumes property to make the bounding
+ * volumes of this node and all its descendants visible by setting the shouldDrawAllBoundingVolumes
+ * property to YES. This can be quite helpful during development time to help determine the size
+ * and shape of a manually-assigned bounding volume, such as those assigned to skinned mesh nodes
+ * as described above.
+ */
+@property(nonatomic, strong) CC3NodeBoundingVolume* boundingVolume;
+
+/** 
+ * If this node has no bounding volume, sets the boundingVolume property
+ * to the value returned by the defaultBoundingVolume property.
+ *
+ * The automatic creation of a bounding volume relies on having the vertex locations in memory.
+ * Therefore, on mesh nodes, make sure that you invoke this method before invoking the
+ * releaseRedundantContent method, otherwise a bounding volume will not be created.
+ *
+ * It is safe to invoke this method more than once. Each node that creates a
+ * bounding volume will do so only if it does not already have a bounding volume.
+ */
+-(void) createBoundingVolume;
+
+/**
+ * Invokes the createBoundingVolume method to set the boundingVolume property to the value
+ * returned by the defaultBoundingVolume property, and then propagates this same method to
+ * all descendant nodes, to create bounding volumes for all all descendant nodes, as defined
+ * by the defaultBoundingVolume property of each descendant.
+ *
+ * The automatic creation of a bounding volume relies on having the vertex locations in memory.
+ * Therefore, make sure that you invoke this method before invoking the releaseRedundantContent
+ * method, otherwise a bounding volume will not be created.
+ *
+ * This method does not automatically create a bounding volume for skinned mesh node descendants.
+ * To do so, you must also invoke the createSkinnedBoundingVolumes method. See the notes of
+ * that method for an explanation.
+ *
+ * It is safe to invoke this method more than once. Each node that creates a bounding volume
+ * will do so only if it does not already have a bounding volume.
+ */
+-(void) createBoundingVolumes;
+
+/**
+ * Deletes the bounding volume of this node and all descendant nodes, by setting 
+ * the boundingVolume property of this node and all descendant nodes to nil.
+ */
+-(void) deleteBoundingVolumes;
+
+/**
+ * Returns an allocated, initialized, autorelease instance of the default bounding volume
+ * to be used by this node.
+ *
+ * This method is invoked automatically by the createBoundingVolume method to populate
+ * the boundingVolume property.
+ *
+ * Structural nodes do not generally require a bounding volume, and this implementation
+ * simply returns nil. Subclasses with drawable content, including all mesh nodes, will
+ * override this property to provide a suitable bounding volume.
+ */
+-(CC3NodeBoundingVolume*) defaultBoundingVolume;
+
+/**
+ * Padding that is added to all edges of the bounding volume, when the bounding volume or the
+ * boundingBox property is determined.
+ *
+ * You can use this to establish a "buffer zone" around the node when creating bounding volumes
+ * or when working with the boundingBox of this node.
+ *
+ * The initial value of this property is zero.
+ */
+@property(nonatomic, assign) GLfloat boundingVolumePadding;
 
 
 #pragma mark Drawing
@@ -2320,22 +2769,25 @@ typedef enum {
 -(void) transformAndDrawWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 /**
- * Returns whether the bounding volume of this node intersects the specified camera frustum.
- * This check does not include checking children, only the local content.
+ * Returns whether the content of this node intersects the specified frustum.
  *
- * This method is invoked automatically during the drawing operations of each frame to determine
- * whether this node does not intersect the camera frustum, should be culled from the visible
- * nodes and not drawn. A return value of YES will cause the node to be drawn, a return value
- * of NO will cause the node to be culled and not drawn.
+ * This method is invoked automatically during the drawing operations of each frame to
+ * determine whether this node does not intersect the camera frustum, should be culled
+ * from the visible nodes and not drawn. A return value of YES will cause the node to
+ * be drawn, a return value of NO will cause the node to be culled and not drawn.
  *
- * Culling nodes that are not visible to the camera is an important performance enhancement. The
- * node should strive to be as accurate as possible in returning whether it intersects the camera's
- * frustum. Incorrectly returning YES will cause wasted processing within the GL engine. Incorrectly
- * returning NO will cause a node that should at least be partially visible to not be drawn.
+ * If this node has a bounding volume, returns whether the bounding volume of this node
+ * intersects the specified camera frustum, by invoking the doesIntersectBoundingVolume:
+ * method of this node.
  *
- * This implementation simply delegates to the more general doesIntersectBoundingVolume: method.
- * However, subclasses may override to take special action when testing for the specific case
- * of intersection with the camera frustum.
+ * Returns YES always if the specified frustum is nil, or if this node does not have a
+ * bounding volume. Nodes without a bounding volume will always be drawn.
+ *
+ * Culling nodes that are not visible to the camera is an important performance enhancement.
+ * The node should strive to be as accurate as possible in returning whether it intersects
+ * the camera's frustum. Incorrectly returning YES will cause wasted processing within the
+ * GL engine. Incorrectly returning NO will cause a node that should at least be partially
+ * visible to not be drawn.
  */
 -(BOOL) doesIntersectFrustum: (CC3Frustum*) aFrustum;
 
@@ -2376,6 +2828,18 @@ typedef enum {
  */
 -(void) checkDrawingOrder;
 
+/**
+ * Indicates whether this node should cast shadows, if shadows are applied to the node
+ * hierarchy to which this node belongs.
+ *
+ * Setting the value of this property sets the value of this property in all descendant nodes.
+ *
+ * The initial value of this property is YES. You can set the value of this property to NO
+ * on specific nodes that you do not want to cast shadows when shadows are applied to a
+ * hierarchy of nodes.
+ */
+@property(nonatomic, assign) BOOL shouldCastShadows;
+
 
 #pragma mark Node structural hierarchy
 
@@ -2387,14 +2851,14 @@ typedef enum {
  * To change the contents of this array, use the addChild: and removeChild:
  * methods of this class. Do not manipulate the contents of this array directly.
  */
-@property(nonatomic, readonly) CCArray* children;
+@property(nonatomic, strong, readonly) NSArray* children;
 
 /**
  * The parent node of this node, in a node structural hierarchy.
  *
  * This property will be nil if this node has not been added as a child to a parent node.
  */
-@property(nonatomic, readonly) CC3Node* parent;
+@property(nonatomic, unsafe_unretained, readonly) CC3Node* parent;
 
 /**
  * Returns the root ancestor of this node, in the node structural hierarchy,
@@ -2407,7 +2871,7 @@ typedef enum {
  * Reading this property traverses up the node hierarchy. If this property
  * is accessed frequently, it is recommended that it be cached.
  */
-@property(nonatomic, readonly) CC3Node* rootAncestor;
+@property(nonatomic, unsafe_unretained, readonly) CC3Node* rootAncestor;
 
 /**
  * If this node has been added to the 3D scene, either directly, or as part
@@ -2417,10 +2881,10 @@ typedef enum {
  * Reading this property traverses up the node hierarchy. If this property
  * is accessed frequently, it is recommended that it be cached.
  */
-@property(nonatomic, readonly) CC3Scene* scene;
+@property(nonatomic, unsafe_unretained, readonly) CC3Scene* scene;
 
 /** @deprecated Renamed to scene. */
-@property(nonatomic, readonly) CC3Scene* world DEPRECATED_ATTRIBUTE;
+@property(nonatomic, unsafe_unretained, readonly) CC3Scene* world DEPRECATED_ATTRIBUTE;
 
 /**
  * If this node has been added to the 3D scene, either directly, or as part
@@ -2430,7 +2894,7 @@ typedef enum {
  * Reading this property traverses up the node hierarchy. If this property
  * is accessed frequently, it is recommended that it be cached.
  */
-@property(nonatomic, retain, readonly) CC3Camera* activeCamera;
+@property(nonatomic, strong, readonly) CC3Camera* activeCamera;
 
 /**
  * Indicates whether this instance should automatically remove itself from its parent
@@ -2457,13 +2921,25 @@ typedef enum {
  * It is safe to invoke this method more than once for the same child node.
  * This method does nothing if the child already has this node as its parent.
  *
- * If you are invoking this method from the updateBeforeTransform: of the node
- * being added, this node, or any ancestor node (including your CC3Scene), the
- * transformMatrix of the node being added (and its descendant nodes) will
- * automatically be updated. However, if you are invoking this method from the
- * updateAfterTransform: method, you should invoke the updateTransformMatrices
- * method on the node being added after this method is finished, to ensure that
- * the transform matrices are udpated.
+ * If you are invoking this method from the updateBeforeTransform: of the node being added,
+ * this node, or any ancestor node (including your CC3Scene), the globalTransformMatrix of
+ * the node being added (and its descendant nodes) will automatically be updated. However,
+ * if you are invoking this method from the updateAfterTransform: method, you should invoke
+ * the updateTransformMatrices method on the node being added after this method is finished,
+ * to ensure that the transform matrices are udpated.
+ *
+ * If this method is being invoked from a background thread (ie- not the main rendering thread)
+ * AND this node is already part of a scene, this operation will automatically be deferred and
+ * queued onto the main operation queue, to be performed on teh main rendering thread prior to
+ * the next rendeirng cycle. This is to ensure that the node is not added while the scene is
+ * being rendered, to avoid race conditions.
+ *
+ * In this situation, subsequent code executed on the background thread should not rely on the
+ * specified node, or any of its descendants, having been added to the receiver or the scene.
+ * For example, invoking this method on the background thread, followed by getNodeNamed: to the
+ * receiver (or any of its ancestors), will almost certainly return nil, because this method
+ * will have been deferred to the main thread, and will, almost certainly, not have been run by
+ * the time the subsequent getNodeNamed: method is run on the background thread.
  */
 -(void) addChild: (CC3Node*) aNode;
 
@@ -2496,12 +2972,12 @@ typedef enum {
  * being added. To ensure that both matrices are each up to date, this method
  * invokes updateTransformMatrix method on both this node and the node being
  * added. You can therefore invoke this method without having to consider
- * whether the transformMatrix has been calculated already.
+ * whether the globalTransformMatrix has been calculated already.
  *
  * This method changes the transform properties of the node being added.
  * If you are invoking this method from the updateBeforeTransform: of the node
  * being added, this node, or any ancestor node (including your CC3Scene), the
- * transformMatrix of the node being added (and its descendant nodes) will
+ * globalTransformMatrix of the node being added (and its descendant nodes) will
  * automatically be updated. However, if you are invoking this method from the
  * updateAfterTransform: method, you should invoke the updateTransformMatrices
  * method on the node being added after this method is finished, to ensure that
@@ -2549,10 +3025,10 @@ typedef enum {
  * set to NO, it is up to you to clean up any running CCActions when you are done with the node.
  * You can do this using either the stopAllActions or cleanupActions method.
  *
- * If the shouldAutoremoveWhenEmpty property is YES, and the last child node is
- * being removed, this node will invoke its own remove method to remove itself from
- * the node hierarchy as well. See the notes for the shouldAutoremoveWhenEmpty
- * property for more info on autoremoving when all child nodes have been removed.
+ * If the shouldAutoremoveWhenEmpty property is YES, and the last child node is removed, this 
+ * node will invoke its own remove method to remove itself from the node hierarchy as well. 
+ * See the notes for the shouldAutoremoveWhenEmpty property for more info on autoremoving when
+ * all child nodes have been removed.
  */
 -(void) removeChild: (CC3Node*) aNode;
 
@@ -2616,13 +3092,13 @@ typedef enum {
  * Returns an autoreleased array containing this node and all its descendants.
  * This is done by invoking flattenInto: with a newly-created array, and returning the array. 
  */
--(CCArray*) flatten;
+-(NSArray*) flatten;
 
 /**
  * Adds this node to the specified array, and then invokes this method on each child node.
  * The effect is to populate the array with this node and all its descendants.
  */
--(void) flattenInto: (CCArray*) anArray;
+-(void) flattenInto: (NSMutableArray*) anArray;
 
 /**
  * Wraps this node in a new autoreleased instance of CC3Node, and returns the new
@@ -2684,7 +3160,7 @@ typedef enum {
  *
  * The isTrackingForBumpMapping of the returned wrapper is set to YES, so that
  * if the target that is assigned is a CC3Light, the wrapper will update the
- * globalLightLocation of the wrapped node from the tracked location of the light,
+ * globalLightPosition of the wrapped node from the tracked location of the light,
  * instead of rotating to face the light. This allows the normals embedded in any
  * bump-mapped texture on the wrapped node to interact with the direction of the
  * light source to create per-pixel luminosity that appears realistic
@@ -2711,15 +3187,9 @@ typedef enum {
  * when this node is removed from its parent. If you have reason to want the actions to be paused but
  * not removed when removing this node from its parent, set this property to NO.
  *
- * One example of such a situation is when you use the addChild: method to move a node from one
- * parent to another. As part of the processing of the addChild: method, if the node already has
- * a parent, it is automatically removed from its current parent. The addChild: method temporarily
- * sets this property to NO so that the actions are not destroyed during the move.
- *
- * If you have some other reason for setting this property to NO, be sure to set it back to YES before
- * this node, or the ancestor node assembly that this node belongs to is removed for good, otherwise
- * this node will continue to be retained by any actions running on this node, and this node will not
- * be deallocated.
+ * If you set this property to NO, be sure to set it back to YES before this node, or the ancestor
+ * node assembly that this node belongs to is removed for good, otherwise this node will continue
+ * to be retained by any actions running on this node, and this node will not be deallocated.
  *
  * Alternately, if you have this property set to NO, you can manually stop and remove all actions
  * using the cleanupActions method.
@@ -2749,8 +3219,8 @@ typedef enum {
  * action to be stopped and replaced with a new movement action, through a second invocation of
  * this method with the same tag, without affecting the fade action.
  *
- * When using this method, you can use the CC3ActionTag enumeration as a convenience for consistently
- * assigning tags by action type.
+ * When using this method, you can use the CC3ActionTag enumeration as a convenience for
+ * consistently assigning tags by action type.
  */
 -(CCAction*) runAction: (CCAction*) action withTag: (NSInteger) tag;
 
@@ -2798,13 +3268,13 @@ typedef enum {
  * Indicates if this node, or any of its descendants, will respond to UI touch events.
  *
  * This property also affects which node will be returned by the touchableNode property.
- * If the isTouchEnabled property is explicitly set for a parent node, but not for a
+ * If the touchEnabled property is explicitly set for a parent node, but not for a
  * child node, both the parent and the child can be touchable, but it will be the
  * parent that is returned by the touchableNode property of either the parent or child.
  *
  * This design simplifies identifying the node that is of interest when a touch event
  * occurs. Thus, a car may be drawn as a node assembly of many descendant nodes (doors,
- * wheels, body, etc). If isTouchEnabled is set for the car structural node, but not
+ * wheels, body, etc). If touchEnabled is set for the car structural node, but not
  * each wheel, it will be the parent car node that will be returned by the touchableNode
  * property of the car structural node, or each wheel node. This allows the user to
  * touch a wheel, but still have the car identified as the object of interest.
@@ -2814,22 +3284,26 @@ typedef enum {
  * 
  * The initial value of this property is NO.
  */
-@property(nonatomic, assign) BOOL isTouchEnabled;
+@property(nonatomic, assign, getter=isTouchEnabled) BOOL touchEnabled;
+
+/** @deprecated Property renamed to touchEnabled, with getter isTouchEnabled. */
+-(void) setIsTouchEnabled: (BOOL) canTouch;
+//-(void) setIsTouchEnabled: (BOOL) canTouch DEPRECATED_ATTRIBUTE;
 
 /**
  * Indicates whether this node will respond to UI touch events.
  *
- * A node may often be touchable even if the isTouchEnabled flag is set to NO.
+ * A node may often be touchable even if the touchEnabled flag is set to NO.
  *
  * When the node is visible, this property returns YES under either of the
  * following conditions:
- *   - The isTouchEnabled property of this node is set to YES.
+ *   - The touchEnabled property of this node is set to YES.
  *   - The shouldInheritTouchability property of this node is set to YES,
  *     AND the isTouchable property of the parent of this node returns YES.
  *
  * When the node is NOT visible, this property returns YES under either of the
  * following conditions:
- *   - The isTouchEnabled property of this node is set to YES
+ *   - The touchEnabled property of this node is set to YES
  *     AND the shouldAllowTouchableWhenInvisible is set to YES.
  *   - The shouldInheritTouchability property of this node is set to YES,
  *     AND the isTouchable property of the parent of this node returns YES.
@@ -2837,7 +3311,7 @@ typedef enum {
  *
  * This design simplifies identifying the node that is of interest when a touch event
  * occurs. Thus, a car may be drawn as a node assembly of many descendant nodes (doors,
- * wheels, body, etc). If isTouchEnabled is set for the car structural node, but not
+ * wheels, body, etc). If touchEnabled is set for the car structural node, but not
  * each wheel, it will be the parent car node that will be returned by the touchableNode
  * property of the car structural node, or each wheel node. This allows the user to
  * touch a wheel, but still have the car identified as the object of interest.
@@ -2848,18 +3322,18 @@ typedef enum {
  * Indicates the node that is of interest if this node is selected by a touch event.
  * The value of this property is not always this node, but may be an ancestor node instead.
  *
- * The value returned by this property is this node if the isTouchEnabled property of this
- * node is set to YES, or the nearest ancestor whose isTouchEnabled property is set to YES,
- * or nil if neither this node, nor any ancestor has the isTouchEnabled property set to YES.
+ * The value returned by this property is this node if the touchEnabled property of this
+ * node is set to YES, or the nearest ancestor whose touchEnabled property is set to YES,
+ * or nil if neither this node, nor any ancestor has the touchEnabled property set to YES.
  *
  * This design simplifies identifying the node that is of interest when a touch event
  * occurs. Thus, a car may be drawn as a node assembly of many descendant nodes (doors,
- * wheels, body, etc). If isTouchEnabled is set for the car structural node, but not
+ * wheels, body, etc). If touchEnabled is set for the car structural node, but not
  * each wheel, it will be the parent car node that will be returned by the touchableNode
  * property of the car structural node, or each wheel node. This allows the user to
  * touch a wheel, but still have the car identified as the object of interest.
  */
-@property(nonatomic, readonly) CC3Node* touchableNode;
+@property(nonatomic, unsafe_unretained, readonly) CC3Node* touchableNode;
 
 /**
  * Indicates whether this node should automatically be considered touchable if this
@@ -2868,16 +3342,16 @@ typedef enum {
  * By using this property, you can turn off touchability on a child node, even when
  * the parent node is touchable.
  *
- * Normally, a node will be touchable if its isTouchEnabled property is set to YES
+ * Normally, a node will be touchable if its touchEnabled property is set to YES
  * on the node itself, or on one of its ancestors. You can change this behaviour by
- * setting this property to NO on the child node. With the isTouchEnabled property
+ * setting this property to NO on the child node. With the touchEnabled property
  * and this property both set to NO, the isTouchable property will return NO, even
  * if the isTouchable property of the parent returns YES, and the node will not
  * respond to touch events even if the parent node does.
  *
  * The initial value of this property is YES, indicating that this node will return
  * YES in the isTouchable property if the parent node returns YES in its isTouchable
- * property, even if the isTouchEnabled property of this node is set to NO.
+ * property, even if the touchEnabled property of this node is set to NO.
  */
 @property(nonatomic, assign) BOOL shouldInheritTouchability;
 
@@ -2894,15 +3368,15 @@ typedef enum {
 @property(nonatomic, assign) BOOL shouldAllowTouchableWhenInvisible;
 
 /**
- * Sets the isTouchEnabled property to YES on this node and all descendant nodes.
+ * Sets the touchEnabled property to YES on this node and all descendant nodes.
  *
  * This is a convenience method that will make all descendants individually touchable
  * and selectable, which is not usually what is wanted. Usually, you would set
- * isTouchEnabled on specific parent nodes that are of interest to select a sub-assembly
+ * touchEnabled on specific parent nodes that are of interest to select a sub-assembly
  * as a whole. However, making all components individually selectable can sometimes be
  * desired, and is useful for testing.
  *
- * For more info see the notes for the isTouchEnabled and touchableNode properties.
+ * For more info see the notes for the touchEnabled and touchableNode properties.
  *
  * This is a convenience method that can find use in testing, where it might be of
  * interest to be able to individually select small components of a larger assembly. 
@@ -2910,10 +3384,10 @@ typedef enum {
 -(void) touchEnableAll;
 
 /**
- * Sets the isTouchEnabled property to NO on this node and all descendant nodes.
+ * Sets the touchEnabled property to NO on this node and all descendant nodes.
  *
  * This is a convenience method that will make this node and all its decendants
- * unresponsive to touches. For more info see the notes for the isTouchEnabled
+ * unresponsive to touches. For more info see the notes for the touchEnabled
  * and touchableNode properties.
  */
 -(void) touchDisableAll;
@@ -2930,9 +3404,8 @@ typedef enum {
  * frustum of the camera.
  *
  * This implementation delegates to this node's boundingVolume. Nodes without a bounding
- * volume will not intersect any other bounding volume. With that design in mind, if
- * either the bounding volume of this node, or the otherBoundingVolume is nil, this
- * method returns NO
+ * volume will not intersect any other bounding volume. With that design in mind, if either
+ * the bounding volume of this node, or the otherBoundingVolume is nil, this method returns NO
  */
 -(BOOL) doesIntersectBoundingVolume: (CC3BoundingVolume*) otherBoundingVolume;
 
@@ -2952,21 +3425,19 @@ typedef enum {
 -(BOOL) doesIntersectNode: (CC3Node*) otherNode;
 
 /**
- * Indicates whether this bounding volume should ignore intersections from rays.
- * If this property is set to YES, intersections with rays will be ignored, and
- * the doesIntersectGlobalRay: method will always return NO, and the
- * locationOfGlobalRayIntesection: and globalLocationOfGlobalRayIntesection:
- * properties will always return kCC3VectorNull.
+ * Indicates whether this bounding volume should ignore intersections from rays. If this property
+ * is set to YES, intersections with rays will be ignored, and the doesIntersectGlobalRay: method
+ * will always return NO, and the locationOfGlobalRayIntesection: and
+ * globalLocationOfGlobalRayIntesection: properties will always return kCC3VectorNull.
  *
  * The initial value of this property is NO, and most of the time this is sufficient.
  *
- * For some uses, such as the bounding volumes of nodes that should be excluded from
- * puncturing from touch selection rays, such as particle emitters, it might make
- * sense to set this property to YES, so that the bounding volume is not affected
- * by rays from touch events.
+ * For some uses, such as nodes that should be excluded from puncturing from touch selection rays,
+ * such as particle emitters, it might make sense to set this property to YES, so that the bounding
+ * volume is not affected by rays from touch events.
  *
- * This property delegates to the bounding volume. Setting this property will
- * have no effect if this node does not have a bounding volume assigned.
+ * This property delegates to the bounding volume. If this node has no bounding volume,
+ * this property will always return YES, and setting this property will have no effect.
  */
 @property(nonatomic, assign) BOOL shouldIgnoreRayIntersection;
 
@@ -3094,94 +3565,6 @@ typedef enum {
 -(CC3Node*) closestNodeIntersectedByGlobalRay: (CC3Ray) aRay;
 
 
-#pragma mark Animation
-
-/**
- * The animation content of this node, which manages animating the node under
- * the direction of a CC3Animate action.
- *
- * To animate this node, set this property to an instance of a subclass of the
- * abstract CC3NodeAnimation class, populated with animation data, and then
- * create an instance of a CC3Animate action, and run it on this node. 
- */
-@property(nonatomic, retain) CC3NodeAnimation* animation;
-
-/** Indicates whether this node, or any of its descendants, contains an instance of an animation. */
-@property(nonatomic, readonly) BOOL containsAnimation;
-
-/**
- * Indicates whether animation is enabled for this node.
- * This property only has effect if there the animation property is not nil.
- *
- * The value of this property only applies to this node, not its child nodes.
- * Child nodes that have this property set to YES will be animated even if
- * this node has this property set to NO, and vice-versa.
- 
- * Use the methods enableAllAnimation and disableAllAnimation to turn animation
- * on or off for all the nodes in a node assembly.
- *
- * The initial value of this property is YES.
- */
-@property(nonatomic, assign) BOOL isAnimationEnabled;
-
-/**
- * Enables animation of this node from animation data held in the animation property.
- *
- * This will not enable animation of child nodes.
- */
--(void) enableAnimation;
-
-/**
- * Disables animation of this node from animation data held in the animation property.
- *
- * This will not disable animation of child nodes.
- */
--(void) disableAnimation;
-
-/**
- * Enables animation of this node, and all descendant nodes, from animation
- * data held in the animation property of this node and each descendant node.
- */
--(void) enableAllAnimation;
-
-/**
- * Disables animation of this node, and all descendant nodes, from animation
- * data held in the animation property of this node and each descendant node.
- */
--(void) disableAllAnimation;
-
-/**
- * The number of frames of animation supported by this node, or its descendants.
- *
- * If this node is animated, returns the frame count from this node's animation.
- * Otherwise, a depth-first traversal of the descendants is performed, and the
- * first non-zero animation frame count value is returned.
- *
- * Returns zero if none of this node and its descendants contains any animation.
- */
-@property(nonatomic, readonly) GLuint animationFrameCount;
-
-/** 
- * Updates the location, rotation and scale of this node based on the animation frame
- * located at the specified time, which should be a value between zero and one, with
- * zero indicating the first animation frame, and one indicating the last animation frame.
- * Only those properties of this node for which there is animation data will be changed.
- *
- * This implementation delegates to the CC3NodeAnimation instance held in the animation
- * property, then passes this notification along to child nodes to align them with the
- * same animation frame. Linear interpolation of the frame data may be performed, based
- * on the number of frames and the specified time.
- *
- * If disableAnimation or disableAllAnimation has been invoked on this node,
- * it will be excluded from animation, and this method will not have any affect
- * on this node. However, this method will be propagated to child nodes.
- *
- * This method is invoked automatically from an instance of CC3Animate that is animating
- * this node. Usually, the application never needs to invoke this method directly.
- */
--(void) establishAnimationFrameAt: (ccTime) t;
-
-
 #pragma mark Developer support
 
 /**
@@ -3209,7 +3592,7 @@ typedef enum {
  *
  * By default, the child descriptor node is not touchable, even if this node is touchable. If, for
  * some reason you want the descriptor text to be touchable, you can retrieve the descriptor node
- * from the descriptorNode property, and set the isTouchEnabled property to YES.
+ * from the descriptorNode property, and set the touchEnabled property to YES.
  */
 @property(nonatomic, assign) BOOL shouldDrawDescriptor;
 
@@ -3217,7 +3600,7 @@ typedef enum {
  * If the shouldDrawDescriptor is set to YES, returns the child node
  * that draws the descriptor text on this node. Otherwise, returns nil.
  */
-@property(nonatomic, readonly) CC3NodeDescriptor* descriptorNode;
+@property(nonatomic, strong, readonly) CC3NodeDescriptor* descriptorNode;
 
 /**
  * Indicates the state of the shouldDrawDescriptor property of this node and all
@@ -3273,7 +3656,7 @@ typedef enum {
  * By default, the child wireframe node is not touchable, even if this node is
  * touchable. If, for some reason you want the wireframe to be touchable, you can
  * retrieve the wireframe node from the wireframeBoxNode property, and set the
- * isTouchEnabled property to YES.
+ * touchEnabled property to YES.
  */
 @property(nonatomic, assign) BOOL shouldDrawWireframeBox;
 
@@ -3281,7 +3664,7 @@ typedef enum {
  * If the shouldDrawWireframeBox is set to YES, returns the child node
  * that draws the wireframe box around this node. Otherwise, returns nil.
  */
-@property(nonatomic, readonly) CC3WireframeBoundingBoxNode* wireframeBoxNode;
+@property(nonatomic, strong, readonly) CC3WireframeBoundingBoxNode* wireframeBoxNode;
 
 /**
  * Returns the color that wireframe bounding boxes will be drawn in when created
@@ -3360,6 +3743,11 @@ typedef enum {
  * The length of the child node is set from the boundingBox property of this node, so that the
  * line protrudes somewhat from this node.
  *
+ * When using this method on a node that does not have an effective bounding box, such as a
+ * light or camera, a length will be automatically calculated as a fraction of the scene size.
+ * You can also set the CC3DirectionMarkerNode.directionMarkerMinimumLength class-side property
+ * to establish a minimum length for the axis markers.
+ *
  * You can add more than one direction marker, and assign different colors to each.
  *
  * This feature can be useful during development in helping to determine the rotational orientation
@@ -3367,7 +3755,7 @@ typedef enum {
  *
  * By default, the child line node is not touchable, even if this node is touchable. If, for some
  * reason you want the wireframe to be touchable, you can retrieve the direction marker nodes via
- * the directionMarkers property, and set the isTouchEnabled property to YES.
+ * the directionMarkers property, and set the touchEnabled property to YES.
  */
 -(void) addDirectionMarkerColored: (ccColor4F) aColor inDirection: (CC3Vector) aDirection;
 
@@ -3376,7 +3764,12 @@ typedef enum {
  * from the origin of this node to a location somewhat outside the node in the direction of the
  * forwardDirection property, in the node's local coordinate system, and in the direction of the
  * globalForwardDirection property, in the global coordinate system of the scene.
- * 
+ *
+ * When using this method on a node that does not have an effective bounding box, such as a
+ * light or camera, a length will be automatically calculated as a fraction of the scene size.
+ * You can also set the CC3DirectionMarkerNode.directionMarkerMinimumLength class-side property
+ * to establish a minimum length for the axis markers.
+ *
  * See the addDirectionMarkerColored:inDirection: method for more info.
  */
 -(void) addDirectionMarker;
@@ -3390,7 +3783,12 @@ typedef enum {
  *
  * The lines are color-coded red, green and blue for the X, Y & Z axes, respectively, as an
  * easy (RGB <=> XYZ) mnemonic.
- * 
+ *
+ * When using this method on a node that does not have an effective bounding box, such as a
+ * light or camera, a length will be automatically calculated as a fraction of the scene size.
+ * You can also set the CC3DirectionMarkerNode.directionMarkerMinimumLength class-side property
+ * to establish a minimum length for the axis markers.
+ *
  * See the addDirectionMarkerColored:inDirection: method for more info.
  */
 -(void) addAxesDirectionMarkers;
@@ -3406,7 +3804,7 @@ typedef enum {
  * Returns an array of all the direction marker child nodes that were previously added
  * using the addDirectionMarkerColored:inDirection: and addDirectionMarker methods.
  */
-@property(nonatomic, readonly) CCArray* directionMarkers;
+@property(nonatomic, strong, readonly) NSArray* directionMarkers;
 
 /**
  * Returns the color that direction marker lines will be drawn in when created
@@ -3455,7 +3853,7 @@ typedef enum {
  * By default, the displayed bounding volume node is not touchable, even if this
  * node is touchable. If, for some reason you want the displayed bounding volume
  * to be touchable, you can retrieve the bounding volume node from the displayNode
- * property of the bounding volume, and set its isTouchEnabled property to YES.
+ * property of the bounding volume, and set its touchEnabled property to YES.
  */
 @property(nonatomic, assign) BOOL shouldDrawBoundingVolume;
 
@@ -3477,8 +3875,8 @@ typedef enum {
  * intersects the bounding volume of this node), if the shouldLogIntersections property of
  * the other bounding volume is also set to YES.
  *
- * The shouldLogIntersections property of this node and the other bounding
- * volumes must both be set to YES for the log message to be output.
+ * The shouldLogIntersections property of this node and the other bounding volumes must
+ * both be set to YES for the log message to be output.
  *
  * The initial value of this property is NO.
  *
@@ -3511,155 +3909,5 @@ typedef enum {
  * compiler build setting is defined and set to 1.
  */
 @property(nonatomic, assign) BOOL shouldLogIntersectionMisses;
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3LocalContentNode
-
-/**
- * CC3LocalContentNode is an abstract class that forms the basis for nodes
- * that have local content to draw.
- *
- * You can cause a wireframe box to be drawn around the local content of
- * the node by setting the shouldDrawLocalContentWireframeBox property to YES.
- * This can be particularly useful during development to locate the boundaries
- * of a node, or to locate a node that is not drawing properly.
- * You can set the default color of this wireframe using the class-side
- * defaultLocalContentWireframeBoxColor property.
- */
-@interface CC3LocalContentNode : CC3Node {
-	CC3BoundingBox globalLocalContentBoundingBox;
-	GLint zOrder;
-}
-
-/**
- * Returns the center of geometry of the local content of this node,
- * in the local coordinate system of this node.
- *
- * If this node has no local content, returns the zero vector.
- */
-@property(nonatomic, readonly) CC3Vector localContentCenterOfGeometry;
-
-/**
- * Returns the smallest axis-aligned bounding box that surrounds the local
- * content of this node, in the local coordinate system of this node.
- *
- * If this node has no local content, returns kCC3BoundingBoxNull.
- */
-@property(nonatomic, readonly) CC3BoundingBox localContentBoundingBox;
-
-/**
- * Returns the center of geometry of the local content of this node,
- * in the global coordinate system of the 3D scene.
- *
- * If this node has no local content, returns the value of the globalLocation property.
- *
- * The value of this property is calculated by transforming the value of the
- * localContentCenterOfGeometry property, using the transformMatrix of this node.
- */
-@property(nonatomic, readonly) CC3Vector globalLocalContentCenterOfGeometry;
-
-/**
- * Returns the smallest axis-aligned bounding box that surrounds the local
- * content of this node, in the global coordinate system of the 3D scene.
- *
- * If this node has no local content, returns kCC3BoundingBoxNull.
- *
- * The value of this property is calculated by transforming the eight vertices derived
- * from the localContentBoundingBox property, using the transformMatrix of this node,
- * and constructing another bounding box that surrounds all eight transformed vertices.
- *
- * Since all bounding boxes are axis-aligned (AABB), if this node is rotated, the
- * globalLocalContentBoundingBox will generally be significantly larger than the
- * localContentBoundingBox. 
- */
-@property(nonatomic, readonly) CC3BoundingBox globalLocalContentBoundingBox;
-
-/**
- * Checks that this node is in the correct drawing order relative to other nodes.
- * This implementation forwards this notification up the ancestor chain to the CC3Scene,
- * which checks if the node is correctly positioned in the drawing sequence, and
- * repositions the node if needed.
- *
- * By default, nodes are automatically repositioned on each drawing frame to optimize
- * the drawing order, so you should usually have no need to use this method.
- * 
- * However, in order to eliminate the overhead of checking each node during each drawing
- * frame, you can disable this automatic behaviour by setting the allowSequenceUpdates
- * property of specific drawing sequencers to NO.
- *
- * In that case, if you modify the properties of a node or its content, such as mesh or material
- * opacity, and your CC3Scene drawing sequencer uses that criteria to sort nodes, you can invoke
- * this method to force the node to be repositioned in the correct drawing order.
- *
- * You don't need to invoke this method when initially setting the properties.
- * You only need to invoke this method if you modify the properties after the node has
- * been added to the CC3Scene, either by itself, or as part of a node assembly.
- */
--(void) checkDrawingOrder;
-
-
-#pragma mark Developer support
-
-/**
- * Indicates whether the node should display a wireframe box around the local content
- * of this node.
- *
- * This property is distinct from the inherited shouldDrawWireframeBox property.
- * The shouldDrawWireframeBox property draws a wireframe that encompasses this node
- * and any child nodes, where this property draws a wireframe that encompasses just
- * the local content for this node alone. If this node has no children, then the two
- * wireframes will surround the same volume.
- *
- * The wireframe box is drawn by creating and adding a CC3WireframeBoundingBoxNode as a child node
- * to this node. The dimensions of the child node are set from the localContentBoundingBox
- * property of this node. Setting this property to YES adds the wireframe child node, and
- * setting this property to NO removes the wireframe child node.
- *
- * Setting this property to YES can be useful during development in determining the
- * boundaries of the local drawn content of a node.
- *
- * The color of the wireframe box will be the value of the class-side
- * defaultLocalContentWireframeBoxColor property, or the value of the color
- * property of this node if defaultLocalContentWireframeBoxColor is equal
- * to kCCC4FBlackTransparent.
- */
-@property(nonatomic, assign) BOOL shouldDrawLocalContentWireframeBox;
-
-/**
- * If the shouldDrawLocalContentWireframeBox is set to YES, returns the child node that
- * draws the wireframe around the local content of this node. Otherwise, returns nil.
- */
-@property(nonatomic, readonly) CC3WireframeBoundingBoxNode* localContentWireframeBoxNode;
-
-/**
- * Returns the color that local content wireframe bounding boxes will be drawn
- * in when created using the shouldDrawLocalContentWireframeBox property.
- *
- * Setting this property to kCCC4FBlackTransparent will cause the color
- * of any new local content wireframe bounding boxes to be set to the value
- * of the color property of the node instead.
- * 
- * The initial value of this class property is kCCC4FMagenta.
- */
-+(ccColor4F) localContentWireframeBoxColor;
-
-/**
- * Sets the color that local content wireframes will be drawn in when created
- * using the shouldDrawWireframeBox property.
- *
- * Changing this property will affect the color of any new local content wireframe
- * bounding boxes created. It does not affect any instances that already have a
- * wireframe bounding box established.
- *
- * Setting this property to kCCC4FBlackTransparent will cause the color
- * of any new local content wireframe bounding boxes to be set to the value
- * of the color property of the node instead.
- * 
- * The initial value of this class property is kCCC4FMagenta.
- */
-+(void) setLocalContentWireframeBoxColor: (ccColor4F) aColor;
 
 @end

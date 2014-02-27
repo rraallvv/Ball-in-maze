@@ -1,9 +1,9 @@
 /*
  * CC3IdentifiablePODExtensions.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -41,12 +41,12 @@
  * The index of this object in the POD resource data.
  * This generally means the podIndex'th type of object of the class.
  */
-@property(nonatomic, assign) int podIndex;
+@property(nonatomic, assign) GLint podIndex;
 
 /**
  * Initializes this instance from the data of this type at
  * the specified index within the specified POD resource.
  */
--(id) initAtIndex: (int) aPODIndex fromPODResource: (CC3PODResource*) aPODRez;
+-(id) initAtIndex: (GLint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez;
 
 @end

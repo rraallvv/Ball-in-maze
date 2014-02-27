@@ -1,9 +1,9 @@
 /*
  * CC3Particles.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,7 +30,6 @@
 /** @file */	// Doxygen marker
 
 #import "CC3MeshNode.h"
-#import "CC3VertexArrayMesh.h"
 
 
 @class CC3ParticleEmitter, CC3ParticleNavigator;
@@ -94,7 +93,7 @@
  * You can also set the isAlive property to NO in the initializeParticle method
  * to cause the emission of the particle to be aborted.
  */
-@protocol CC3ParticleProtocol <NSObject>
+@protocol CC3ParticleProtocol <CC3Object>
 
 /**
  * The emitter that emitted this particle.
@@ -258,7 +257,7 @@ static const ccTime kCC3ParticleInfiniteEmissionRate = kCC3MaxGLfloat;
  * This can be used with the maximumParticleCapacity property, and indicates that there
  * is no pre-defined maximum limit to the number of particles that will be emitted.
  */
-static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
+static const GLuint kCC3ParticlesNoMax = UINT_MAX;
 
 /**
  * A CC3MeshNode that emits 3D particles.
@@ -381,21 +380,22 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * emitter node, and is deallocated automatically when the emitter is released.
  */
 @interface CC3ParticleEmitter : CC3MeshNode {
-	CCArray* particles;
-	CC3ParticleNavigator* particleNavigator;
-	Class particleClass;
-	NSUInteger maximumParticleCapacity;
-	NSUInteger particleCapacityExpansionIncrement;
-	NSUInteger particleCount;
-	ccTime emissionDuration;
-	ccTime elapsedTime;
-	ccTime emissionInterval;
-	ccTime timeSinceEmission;
-	BOOL shouldRemoveOnFinish : 1;
-	BOOL isEmitting : 1;
-	BOOL wasStarted : 1;
-	BOOL shouldUpdateParticlesBeforeTransform : 1;
-	BOOL shouldUpdateParticlesAfterTransform : 1;
+	NSMutableArray* _particles;
+	CC3ParticleNavigator* _particleNavigator;
+	Class _particleClass;
+	GLuint _currentParticleCapacity;
+	GLuint _maximumParticleCapacity;
+	GLuint _particleCapacityExpansionIncrement;
+	GLuint _particleCount;
+	ccTime _emissionDuration;
+	ccTime _elapsedTime;
+	ccTime _emissionInterval;
+	ccTime _timeSinceEmission;
+	BOOL _shouldRemoveOnFinish : 1;
+	BOOL _isEmitting : 1;
+	BOOL _wasStarted : 1;
+	BOOL _shouldUpdateParticlesBeforeTransform : 1;
+	BOOL _shouldUpdateParticlesAfterTransform : 1;
 }
 
 /**
@@ -417,7 +417,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * implements the protocols specified by the requiredParticleProtocol property of both this
  * emitter and the particle navigator
  */
-@property(nonatomic, assign) Class particleClass;
+@property(nonatomic, strong) Class particleClass;
 
 /**
  * The protocol required for particles emitted by this emitter.
@@ -438,7 +438,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * To encompass both requirements, you should create another custom protocol that wraps
  * (conforms to) both of those protocols, and assign it to this requiredParticleProtocol property.
  */
-@property(nonatomic, readonly) Protocol* requiredParticleProtocol;
+@property(nonatomic, strong, readonly) Protocol* requiredParticleProtocol;
 
 /**
  * For particles that follow a planned life-cycle and trajectory, the particle navigator configures that
@@ -460,7 +460,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * The initial value of this property is nil, indicating that the particles will not be
  * configured with a life-cycle and trajectory by a navigator.
  */
-@property(nonatomic, retain) CC3ParticleNavigator* particleNavigator;
+@property(nonatomic, strong) CC3ParticleNavigator* particleNavigator;
 
 /**
  * Indicates the length of time that the emitter will emit particles.
@@ -553,7 +553,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * The initial value of this property is kCC3ParticlesNoMax, indicating that there is no
  * pre-defined maximum limit to the number of particles that will be emitted.
  */
-@property(nonatomic, assign) NSUInteger maximumParticleCapacity;
+@property(nonatomic, assign) GLuint maximumParticleCapacity;
 
 /**
  * Indicates the current maximum number of particles that can be alive at any one time in the
@@ -573,7 +573,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * updateAfterTransform: methods of the particle. This frees that particle to be re-initialized
  * and re-emitted at a later time.
  */
-@property(nonatomic, readonly) NSUInteger currentParticleCapacity;
+@property(nonatomic, readonly) GLuint currentParticleCapacity;
 
 /**
  * The amount of additional particle capacity that will be allocated each time space for
@@ -592,7 +592,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  *
  * The initial value of this property is 100.
  */
-@property(nonatomic, assign) NSUInteger particleCapacityExpansionIncrement;
+@property(nonatomic, assign) GLuint particleCapacityExpansionIncrement;
 
 /**
  * Returns whether the maximum number of particles has been reached. This occurs when the value
@@ -750,7 +750,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * the maximum number of particles, as defined by the maximumParticleCapacity property is
  * reached, the returned number may be less that the specified count.
  */
--(NSUInteger) emitParticles: (NSUInteger) count;
+-(GLuint) emitParticles: (GLuint) count;
 
 /**
  * Adds the specified particle to the emitter and emits it.
@@ -847,16 +847,16 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  *
  * The application must not change the contents of this array directly.
  */
-@property(nonatomic, readonly) CCArray* particles;
+@property(nonatomic, strong, readonly) NSArray* particles;
 
 /**
  * The number of particles that are currently alive and being displayed by this emitter. The value of
  * this property will increase as particles are emitted, and will decrease as particles age and expire.
  */
-@property(nonatomic, readonly) NSUInteger particleCount;
+@property(nonatomic, readonly) GLuint particleCount;
 
 /** Returns the particle at the specified index within the particles array. */
--(id<CC3ParticleProtocol>) particleAt: (NSUInteger) aParticleIndex;
+-(id<CC3ParticleProtocol>) particleAt: (GLuint) aParticleIndex;
 
 /**
  * Returns the particle that contains the vertex at the specified index, or nil if no particle
@@ -945,7 +945,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * particles must support in order to be prepared by this navigator during initialization.
  */
 @interface CC3ParticleNavigator : NSObject <NSCopying> {
-	CC3ParticleEmitter* emitter;
+	CC3ParticleEmitter* __unsafe_unretained _emitter;
 }
 
 /**
@@ -954,7 +954,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * This property is set automatically when the navigator is attached to the emitter.
  * Usually the application never needs to set this property directly.
  */
-@property(nonatomic, assign) CC3ParticleEmitter* emitter;
+@property(nonatomic, unsafe_unretained) CC3ParticleEmitter* emitter;
 
 /**
  * The protocol required by this particle navigator on the particles, in order for this navigator
@@ -976,7 +976,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * To encompass both requirements, you should create another custom protocol that wraps
  * (conforms to) both of those protocols, and assign it to this requiredParticleProtocol property.
  */
-@property(nonatomic, readonly) Protocol* requiredParticleProtocol;
+@property(nonatomic, strong, readonly) Protocol* requiredParticleProtocol;
 
 /**
  * Template method that initializes the particle. For particles that follow a planned life-cycle
@@ -1095,17 +1095,10 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * This class forms the basis of both point particle emitters and mesh particle emitters.
  */
 @interface CC3CommonVertexArrayParticleEmitter : CC3ParticleEmitter {
-	NSRange dirtyVertexRange;
-	NSRange dirtyVertexIndexRange;
-	BOOL wasVertexCapacityChanged;
+	NSRange _dirtyVertexRange;
+	NSRange _dirtyVertexIndexRange;
+	BOOL _wasVertexCapacityChanged;
 }
-
-/**
- * The mesh that holds the vertex data for this mesh node.
- *
- * CC3CommonVertexArrayParticleEmitter requires that the mesh be of type CC3VertexArrayMesh.
- */
-@property(nonatomic, retain) CC3VertexArrayMesh* mesh;
 
 @end
 
@@ -1118,7 +1111,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
  * CC3ParticleProtocol protocol.
  */
 @interface CC3ParticleBase : NSObject <CC3ParticleProtocol, CCRGBAProtocol, NSCopying> {
-	CC3ParticleEmitter* emitter;
+	CC3ParticleEmitter* __unsafe_unretained _emitter;
 }
 
 /**
@@ -1135,7 +1128,7 @@ static const NSUInteger kCC3ParticlesNoMax = UINT_MAX;
 /**
  * The location of the particle in 3D space, relative to the global origin.
  *
- * This is calculated by using the transformMatrix of the emitter to transform
+ * This is calculated by using the globalTransformMatrix of the emitter to transform
  * the location of this particle.
  */
 @property(nonatomic, readonly) CC3Vector globalLocation;

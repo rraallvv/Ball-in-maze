@@ -1,9 +1,9 @@
 /*
  * CC3PODResource.mm
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -41,8 +41,8 @@ extern "C" {
 #import "CC3PODMesh.h"
 #import "CC3PODMaterial.h"
 #import "CC3PODVertexSkinning.h"
+#import "CC3PFXResource.h"
 #import "CC3CC2Extensions.h"
-#import "CCTextureCache.h"
 
 
 /**
@@ -51,400 +51,192 @@ extern "C" {
  */
 static const id placeHolder = [NSObject new];
 
-
-@interface CC3PODResource (TemplateMethods)
-
-/** The underlying pvrtModel property, cast to the correct CPVRTModelPOD C++ class. */
-@property(nonatomic, readonly)  CPVRTModelPOD* pvrtModelImpl;
-@end
-
-
 @implementation CC3PODResource
 
-@synthesize pvrtModel, allNodes, meshes, materials, textures, textureParameters;
+@synthesize pvrtModel=_pvrtModel, allNodes=_allNodes, meshes=_meshes;
+@synthesize materials=_materials, textures=_textures, textureParameters=_textureParameters;
+@synthesize shouldAutoBuild = _shouldAutoBuild;
+@synthesize ambientLight=_ambientLight, backgroundColor=_backgroundColor;
+@synthesize animationFrameCount=_animationFrameCount, animationFrameRate=_animationFrameRate;
 
 -(void) dealloc {
-	[allNodes release];
-	[meshes release];
-	[materials release];
-	[textures release];
-	if (self.pvrtModelImpl) delete (CPVRTModelPOD*)self.pvrtModelImpl;
-	pvrtModel = NULL;
-	[super dealloc];
+	[self deleteCPVRTModelPOD];
 }
 
--(CPVRTModelPOD*) pvrtModelImpl { return (CPVRTModelPOD*)pvrtModel; }
+-(CPVRTModelPOD*) pvrtModelImpl { return (CPVRTModelPOD*)_pvrtModel; }
+
+-(void) createCPVRTModelPOD { if ( !_pvrtModel ) _pvrtModel = new CPVRTModelPOD(); }
+
+-(void) deleteCPVRTModelPOD {
+	if (_pvrtModel) delete self.pvrtModelImpl;
+	_pvrtModel = NULL;
+}
 
 
 #pragma mark Allocation and initialization
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		pvrtModel = new CPVRTModelPOD();
-		allNodes = [[CCArray array] retain];
-		meshes = [[CCArray array] retain];
-		materials = [[CCArray array] retain];
-		textures = [[CCArray array] retain];
-		textureParameters = [CC3Texture defaultTextureParameters];
+		_pvrtModel = NULL;
+		_allNodes = [NSMutableArray array];
+		_meshes = [NSMutableArray array];
+		_materials = [NSMutableArray array];
+		_textures = [NSMutableArray array];
+		_textureParameters = [CC3Texture defaultTextureParameters];
+		_shouldAutoBuild = YES;
 	}
 	return self;
 }
 
 -(BOOL) processFile: (NSString*) anAbsoluteFilePath {
-	wasLoaded = (self.pvrtModelImpl->ReadFromFile([anAbsoluteFilePath cStringUsingEncoding:NSUTF8StringEncoding]) == PVR_SUCCESS);
-	if (wasLoaded) [self build];
+
+	// Split the path into directory and file names and set the PVR read path to the directory and
+	// pass the unqualified file name to the parser. This allows the parser to locate any additional
+	// files that might be read as part of the parsing.
+	NSString* fileName = anAbsoluteFilePath.lastPathComponent;
+	NSString* dirName = anAbsoluteFilePath.stringByDeletingLastPathComponent;
+
+	CPVRTResourceFile::SetReadPath([dirName stringByAppendingString: @"/"].UTF8String);
+	
+	[self createCPVRTModelPOD];
+	BOOL wasLoaded = (self.pvrtModelImpl->ReadFromFile(fileName.UTF8String) == PVR_SUCCESS);
+	
+	if (wasLoaded && _shouldAutoBuild) [self build];
+	
 	return wasLoaded;
 }
 
+
+#pragma mark Building
+
 -(void) build {
+	[self buildSceneInfo];
 	LogRez(@"Building %@", self.fullDescription);
 	[self buildTextures];
 	[self buildMaterials];
 	[self buildMeshes];
 	[self buildNodes];
 	[self buildSoftBodyNode];
+	[self deleteCPVRTModelPOD];
 }
 
-
-#pragma mark Accessing node data and building nodes
-
--(uint) nodeCount { return self.pvrtModelImpl->nNumNode; }
-
--(CC3Node*) nodeAtIndex: (uint) nodeIndex {
-	return (CC3Node*)[allNodes objectAtIndex: nodeIndex];
-}
-
--(CC3Node*) nodeNamed: (NSString*) aName {
-	NSString* lcName = [aName lowercaseString];
-	uint nCnt = self.nodeCount;
-	for (uint i = 0; i < nCnt; i++) {
-		CC3Node* aNode = [self nodeAtIndex: i];
-		if ([[aNode.name lowercaseString] isEqualToString: lcName]) {
-			return aNode;
-		}
-	}
-	return nil;
-}
-
--(void) buildNodes {
-	uint nCount = self.nodeCount;
-
-	// Build the array containing ALL nodes in the PVRT structure
-	for (uint i = 0; i < nCount; i++) {
-		[allNodes addObject: [self buildNodeAtIndex: i]];
-	}
-
-	// Link the nodes with each other. This includes assembling the nodes into a structural
-	// parent-child hierarchy, and connecting targetting nodes with their targets.
-	// Base nodes, which have no parent, form the entries of the nodes array.
-	for (CC3Node* aNode in allNodes) {
-		[aNode linkToPODNodes: allNodes];
-		if (aNode.isBasePODNode) {
-			[self.nodes addObject: aNode];
-		}
-	}
-}
-
--(CC3Node*) buildNodeAtIndex: (uint) nodeIndex {
-	// Mesh nodes are arranged first
-	if (nodeIndex < self.meshNodeCount) {
-		return [self buildMeshNodeAtIndex: nodeIndex];
-	}
-	// Then light nodes
-	if (nodeIndex < self.meshNodeCount + self.lightCount) {
-		return [self buildLightAtIndex: (nodeIndex - self.meshNodeCount)];
-	}
-	// Then camera nodes
-	if (nodeIndex < self.meshNodeCount + self.lightCount + self.cameraCount) {
-		return [self buildCameraAtIndex: (nodeIndex - (self.meshNodeCount + self.lightCount))];
-	}
-	// Finally general nodes, including structural nodes or targets for lights or cameras
-	return [self buildStructuralNodeAtIndex: nodeIndex];
-}
-
--(CC3Node*) buildStructuralNodeAtIndex: (uint) nodeIndex {
-	if ( [self isBoneNode: nodeIndex] ) {
-		return [CC3PODBone nodeAtIndex: nodeIndex fromPODResource: self];
-	}
-	return [CC3PODNode nodeAtIndex: nodeIndex fromPODResource: self];
-}
-
--(PODStructPtr) nodePODStructAtIndex: (uint) nodeIndex {
-	return &self.pvrtModelImpl->pNode[nodeIndex];
-}
-
--(BOOL) isNodeIndex: (int) aNodeIndex ancestorOfNodeIndex: (int) childIndex {
-
-	// Return YES if nodes are the same
-	if (aNodeIndex == childIndex) return YES;
-
-	// Get the SPOD structure of the child, and extract the index of its parent node.
-	// Return no parent
-	SPODNode* psn = (SPODNode*)[self nodePODStructAtIndex: childIndex];
-	int parentIndex = psn->nIdxParent;
-	if (parentIndex < 0) return NO;
-
-	// Invoke recursion on the index of the parent node
-	return [self isNodeIndex: aNodeIndex ancestorOfNodeIndex: parentIndex];
-}
-
--(BOOL) isBoneNode: (uint) aNodeIndex {
-	uint mCount = self.meshCount;
-	// Cycle through the meshes
-	for (uint mi = 0; mi < mCount; mi++) {
-		SPODMesh* psm = (SPODMesh*)[self meshPODStructAtIndex: mi];
-		CPVRTBoneBatches* pbb = &psm->sBoneBatches;
-
-		// Cycle through the bone batches within each mesh
-		for (int batchIndex = 0; batchIndex < pbb->nBatchCnt; batchIndex++) {
-			int boneCount = pbb->pnBatchBoneCnt[batchIndex];
-			int* boneNodeIndices = &(pbb->pnBatches[batchIndex * pbb->nBatchBoneMax]);
-
-			// Cycle through the bones of each batch. If the bone node is a child of
-			// the specified node, then the specified node is a bone as well.
-			for (int boneIndex = 0; boneIndex < boneCount; boneIndex++) {
-				if ( [self isNodeIndex: aNodeIndex ancestorOfNodeIndex: boneNodeIndices[boneIndex]] ) {
-					return YES;
-				}
-			}
-		}
-	}
-	return NO;
-}
-
--(void) buildSoftBodyNode {
-	CCArray* softBodyComponents = [CCArray arrayWithCapacity: nodes.count];
-	for (CC3Node* baseNode in nodes) {
-		if (baseNode.hasSoftBodyContent) {
-			[softBodyComponents addObject: baseNode];
-		}
-	}
-	if (softBodyComponents.count > 0) {
-		NSString* sbName = [NSString stringWithFormat: @"%@-SoftBody", self.name];
-		CC3SoftBodyNode* sbn = [CC3SoftBodyNode nodeWithName: sbName];
-		for (CC3Node* sbc in softBodyComponents) {
-			[sbn addChild: sbc];
-			[nodes removeObjectIdenticalTo: sbc];
-		}
-		[sbn bindRestPose];
-		[nodes addObject: sbn];
-	}
-}
-
-
-#pragma mark Accessing mesh data and building mesh nodes
-
--(uint) meshNodeCount {
-	return self.pvrtModelImpl->nNumMeshNode;
-}
-
--(CC3MeshNode*) meshNodeAtIndex: (uint) meshIndex {
-	// mesh nodes appear first in the node array
-	return (CC3MeshNode*)[self nodeAtIndex: meshIndex];
-}
-
-/** If we are vertex skinning, return a skin mesh node, otherwise return a generic mesh node. */
--(CC3MeshNode*) buildMeshNodeAtIndex: (uint) meshNodeIndex {
-	SPODNode* psn = (SPODNode*)[self meshNodePODStructAtIndex: meshNodeIndex];
-	SPODMesh* psm = (SPODMesh*)[self meshPODStructAtIndex: psn->nIdx];
-	if (psm->sBoneBatches.nBatchCnt) {
-		return [CC3PODSkinMeshNode nodeAtIndex: meshNodeIndex fromPODResource: self];
-	}
-	return [CC3PODMeshNode nodeAtIndex: meshNodeIndex fromPODResource: self];
-}
-
--(PODStructPtr) meshNodePODStructAtIndex: (uint) meshIndex {
-	// mesh nodes appear first in the node array
-	return [self nodePODStructAtIndex: meshIndex];
-}
-
--(uint) meshCount {
-	return self.pvrtModelImpl->nNumMesh;
-}
-
--(void) buildMeshes {
-	uint mCount = self.meshCount;
+-(BOOL) saveToFile: (NSString*) aFilePath {
 	
-	// Build the array containing all materials in the PVRT structure
-	for (uint i = 0; i < mCount; i++) {
-		[meshes addObject: [self buildMeshAtIndex: i]];
-	}
+	CC3Assert(_pvrtModel, @"%@ cannot be saved because the POD file content has been built and released from memory."
+			  " Set the shouldAutoBuild property to NO before loading the POD file content in order to be able to save it back to a file.", self);
+	
+	// Ensure the path is absolute, converting it if needed.
+	NSString* absFilePath = CC3EnsureAbsoluteFilePath(aFilePath);
+	
+	MarkRezActivityStart();
+	
+	BOOL wasSaved = (self.pvrtModelImpl->SavePOD(absFilePath.UTF8String) == PVR_SUCCESS);
+	
+	if (wasSaved)
+		LogRez(@"%@ saved resources to file '%@' in %.3f ms", self, aFilePath, GetRezActivityDuration() * 1000);
+	else
+		LogError(@"%@ could not save resources to file '%@'", self, absFilePath);
+	
+	return wasSaved;
 }
 
--(CC3Mesh*) meshAtIndex: (uint) meshIndex {
-	return (CC3Mesh*)[meshes objectAtIndex: meshIndex];
-}
+-(BOOL) saveAnimationToFile: (NSString*) aFilePath {
+	
+	CC3Assert(_pvrtModel, @"%@ could not save animation content because the POD file content has been built and released from memory."
+			  " Set the shouldAutoBuild property to NO before loading the POD file content in order to be able to save the animation content to a file.", self);
+	
+	// Ensure the path is absolute, converting it if needed.
+	NSString* absFilePath = CC3EnsureAbsoluteFilePath(aFilePath);
+	
+	MarkRezActivityStart();
 
-// Deprecated method.
--(CC3Mesh*) meshModelAtIndex: (uint) meshIndex { return [self meshAtIndex: meshIndex]; }
+	CPVRTModelPOD* myPod = self.pvrtModelImpl;
+	CPVRTModelPOD* pod = new CPVRTModelPOD();
+	
+	// Scene animation content
+	pod->nNumFrame = myPod->nNumFrame;
+	pod->nFPS = myPod->nFPS;
+	pod->nFlags = myPod->nFlags;
 
-/** If we have skinning bones, return a skinned mesh, otherwise return a generic mesh. */
--(CC3Mesh*) buildMeshAtIndex: (uint) meshIndex {
-	SPODMesh* psm = (SPODMesh*)[self meshPODStructAtIndex: meshIndex];
-	if (psm->sBoneBatches.nBatchCnt) {
-		return [CC3PODSkinMesh meshAtIndex:meshIndex fromPODResource:self];
-	}
-	return [CC3PODMesh meshAtIndex: meshIndex fromPODResource: self];
-}
-
--(PODStructPtr) meshPODStructAtIndex: (uint) meshIndex {
-	return &self.pvrtModelImpl->pMesh[meshIndex];
-}
-
-
-#pragma mark Accessing light data and building light nodes
-
--(uint) lightCount {
-	return self.pvrtModelImpl->nNumLight;
-}
-
--(CC3Light*) lightAtIndex: (uint) lightIndex {
-	// light nodes appear after all the mesh nodes in the node array
-	return (CC3Light*)[self nodeAtIndex: (self.meshNodeCount + lightIndex)];
-}
-
--(CC3Light*) buildLightAtIndex: (uint) lightIndex {
-	return [CC3PODLight nodeAtIndex: lightIndex fromPODResource: self];
-}
-
--(PODStructPtr) lightNodePODStructAtIndex: (uint) lightIndex {
-	// light nodes appear after all the mesh nodes in the node array
-	return [self nodePODStructAtIndex: (self.meshNodeCount + lightIndex)];
-}
-
--(PODStructPtr) lightPODStructAtIndex: (uint) lightIndex {
-	return &self.pvrtModelImpl->pLight[lightIndex];
-}
-
-
-#pragma mark Accessing cameras data and building camera nodes
-
--(uint) cameraCount {
-	return self.pvrtModelImpl->nNumCamera;
-}
-
--(CC3Camera*) cameraAtIndex: (uint) cameraIndex {
-	return (CC3Camera*)[self nodeAtIndex: (self.meshNodeCount + self.lightCount + cameraIndex)];
-}
-
--(CC3Camera*) buildCameraAtIndex: (uint) cameraIndex {
-	return [CC3PODCamera nodeAtIndex: cameraIndex fromPODResource: self];
-}
-
--(PODStructPtr) cameraNodePODStructAtIndex: (uint) cameraIndex {
-	// camera nodes appear after all the mesh nodes and light nodes in the node array
-	return [self nodePODStructAtIndex: (self.meshNodeCount + self.lightCount + cameraIndex)];
-}
-
--(PODStructPtr) cameraPODStructAtIndex: (uint) cameraIndex {
-	return &self.pvrtModelImpl->pCamera[cameraIndex];
-}
-
-
-#pragma mark Accessing material data and building materials
-
--(uint) materialCount {
-	return self.pvrtModelImpl->nNumMaterial;
-}
-
--(CC3Material*) materialAtIndex: (uint) materialIndex {
-	return (CC3Material*)[materials objectAtIndex: materialIndex];
-}
-
--(CC3Material*) materialNamed: (NSString*) aName {
-	NSString* lcName = [aName lowercaseString];
-	uint mCnt = self.materialCount;
-	for (uint i = 0; i < mCnt; i++) {
-		CC3Material* aMat = [self materialAtIndex: i];
-		if ([[aMat.name lowercaseString] isEqualToString: lcName]) {
-			return aMat;
+	// Allocate enough memory for the nodes and copy them over,
+	// except for the content and material references
+	pod->pNode = NULL;
+	GLuint nodeCnt = myPod->nNumNode;
+	pod->nNumNode = nodeCnt;
+	if (nodeCnt) {
+		pod->pNode = (SPODNode*)calloc(nodeCnt, sizeof(SPODNode));
+		for(GLuint nodeIdx = 0; nodeIdx < nodeCnt; nodeIdx++) {
+			PVRTModelPODCopyNode(myPod->pNode[nodeIdx], pod->pNode[nodeIdx], myPod->nNumFrame);
+			pod->pNode[nodeIdx].nIdx = -1;
+			pod->pNode[nodeIdx].nIdxMaterial = -1;
 		}
 	}
-	return nil;
-}
-
--(void) buildMaterials {
-	uint mCount = self.materialCount;
 	
-	// Build the array containing all materials in the PVRT structure
-	for (uint i = 0; i < mCount; i++) {
-		[materials addObject: [self buildMaterialAtIndex: i]];
-	}
-}
+	// Ensure remaining content is blank. Constructor does not initialize to safe empty state!!
+	pod->pfColourBackground[0] = pod->pfColourBackground[1] = pod->pfColourBackground[2] = 0.0;
+	pod->pfColourAmbient[0] = pod->pfColourAmbient[1] = pod->pfColourAmbient[2] = 0.0;
 
--(CC3Material*) buildMaterialAtIndex: (uint) materialIndex {
-	return [CC3PODMaterial materialAtIndex: materialIndex fromPODResource: self];
-}
-
--(PODStructPtr) materialPODStructAtIndex: (uint) materialIndex {
-	return &self.pvrtModelImpl->pMaterial[materialIndex];
-}
-
-
-#pragma mark Accessing texture data and building textures
-
--(uint) textureCount {
-	return self.pvrtModelImpl->nNumTexture;
-}
-
--(CC3Texture*) textureAtIndex: (uint) textureIndex {
-	id tex = [textures objectAtIndex: textureIndex];
-	return (tex != placeHolder) ? (CC3Texture*)tex : nil;
-}
-
--(void) buildTextures {
-	uint tCount = self.textureCount;
+	pod->nNumMeshNode = 0;
 	
-	// Build the array containing all textures in the PVRT structure
-	for (uint i = 0; i < tCount; i++) {
-		CC3Texture* tex = [self buildTextureAtIndex: i];
-		// Add the texture, or if it couldn't be built, an empty texture
-		[textures addObject: (tex ? tex : placeHolder)];
+	pod->nNumCamera = 0;
+	pod->pCamera = NULL;
+	
+	pod->nNumLight = 0;
+	pod->pLight = NULL;
+	
+	pod->nNumMesh = 0;
+	pod->pMesh = NULL;
+	
+	pod->nNumMaterial = 0;
+	pod->pMaterial = NULL;
+
+	pod->nNumTexture = 0;
+	pod->pTexture = NULL;
+	
+	pod->nUserDataSize = 0;
+	pod->pUserData = NULL;
+	
+	pod->InitImpl();
+	
+	BOOL wasSaved = (pod->SavePOD(absFilePath.UTF8String) == PVR_SUCCESS);
+
+	delete pod;
+	
+	if (wasSaved)
+		LogRez(@"%@ saved animation content to file '%@' in %.3f ms", self, aFilePath, GetRezActivityDuration() * 1000.0);
+	else
+		LogError(@"%@ could not save animation content to file '%@'", self, absFilePath);
+	
+	return wasSaved;
+}
+
+
+#pragma mark Accessing scene info
+
+-(void) buildSceneInfo {
+	CPVRTModelPOD* pod = self.pvrtModelImpl;
+	GLfloat* rgb;
+	
+	rgb = pod->pfColourAmbient;
+	_ambientLight = ccc4f(rgb[0], rgb[1], rgb[2], 1.0);
+
+	rgb = pod->pfColourBackground;
+	_backgroundColor = ccc4f(rgb[0], rgb[1], rgb[2], 1.0);
+
+	_animationFrameCount = pod->nNumFrame;
+	_animationFrameRate = pod->nFPS;
+	
+	// Assign any user data and take ownership of managing its memory
+	if (pod->pUserData && pod->nUserDataSize > 0) {
+		self.userData = [NSData dataWithBytesNoCopy: pod->pUserData length: pod->nUserDataSize];
+		pod->pUserData = NULL;		// Clear reference so SPODNode won't try to free it.
 	}
-}
-
-/** Loads the texture file from the directory indicated by the directory property. */
--(CC3Texture*) buildTextureAtIndex: (uint) textureIndex {
-	SPODTexture* pst = (SPODTexture*)[self texturePODStructAtIndex: textureIndex];
-	NSString* texFile = [NSString stringWithUTF8String: pst->pszName];
-	NSString* texPath = [directory stringByAppendingPathComponent: texFile];
-	CC3Texture* tex = [CC3Texture textureFromFile: texPath];
-	tex.textureParameters = textureParameters;
-	LogRez(@"Creating %@ at POD index %u from: '%@'", tex, textureIndex, texPath);
-	return tex;
-}
-
--(PODStructPtr) texturePODStructAtIndex: (uint) textureIndex {
-	return &self.pvrtModelImpl->pTexture[textureIndex];
-}
-
-
-#pragma mark Accessing miscellaneuous content
-
--(uint) animationFrameCount {
-	return self.pvrtModelImpl->nNumFrame;
-}
-
--(ccColor4F) ambientLight {
-	GLfloat* amb = self.pvrtModelImpl->pfColourAmbient;
-	return CCC4FMake(amb[0], amb[1], amb[2], 1.0);
-}
-
--(ccColor4F) backgroundColor {
-	GLfloat* bg = self.pvrtModelImpl->pfColourBackground;
-	return CCC4FMake(bg[0], bg[1], bg[2], 1.0);
-}
-
--(NSString*) description {
-	return [NSString stringWithFormat: @"%@ from file %@", [self class], self.name];
 }
 
 -(NSString*) fullDescription {
 	NSMutableString* desc = [NSMutableString stringWithCapacity: 200];
 	[desc appendFormat: @"%@", self];
-	if (self.pvrtModelImpl->nFlags & PVRTMODELPODSF_FIXED) {		// highlight if fixed point
-		[desc appendFormat: @" (FIXED POINT!!)"];
-	}
+	if (_pvrtModel && self.pvrtModelImpl->nFlags & PVRTMODELPODSF_FIXED) [desc appendFormat: @" (FIXED POINT!!)"];
 	[desc appendFormat: @" containing %u nodes", self.nodeCount];
 	[desc appendFormat: @" (%u mesh nodes)", self.meshNodeCount];
 	[desc appendFormat: @", %u meshes", self.meshCount];
@@ -452,10 +244,320 @@ static const id placeHolder = [NSObject new];
 	[desc appendFormat: @", %u lights", self.lightCount];
 	[desc appendFormat: @", %u materials", self.materialCount];
 	[desc appendFormat: @", %u textures", self.textureCount];
-	[desc appendFormat: @", %u frames", self.animationFrameCount];
 	[desc appendFormat: @", ambient light %@", NSStringFromCCC4F(self.ambientLight)];
 	[desc appendFormat: @", background color %@", NSStringFromCCC4F(self.backgroundColor)];
+	[desc appendFormat: @", %u frames of animation at %.1f FPS", self.animationFrameCount, self.animationFrameRate];
 	return desc;
 }
 
+
+#pragma mark Accessing node data and building nodes
+
+-(GLuint) nodeCount { return _pvrtModel ? self.pvrtModelImpl->nNumNode : 0; }
+
+-(CC3Node*) nodeAtIndex: (GLuint) nodeIndex {
+	return (CC3Node*)[_allNodes objectAtIndex: nodeIndex];
+}
+
+-(CC3Node*) nodeNamed: (NSString*) aName {
+	NSString* lcName = [aName lowercaseString];
+	GLuint nCnt = self.nodeCount;
+	for (GLuint i = 0; i < nCnt; i++) {
+		CC3Node* aNode = [self nodeAtIndex: i];
+		if ([[aNode.name lowercaseString] isEqualToString: lcName]) return aNode;
+	}
+	return nil;
+}
+
+-(void) buildNodes {
+	GLuint nCount = self.nodeCount;
+
+	// Build the array containing ALL nodes in the PVRT structure
+	for (GLuint i = 0; i < nCount; i++) [_allNodes addObject: [self buildNodeAtIndex: i]];
+
+	// Link the nodes with each other. This includes assembling the nodes into a structural
+	// parent-child hierarchy, and connecting targetting nodes with their targets.
+	// Base nodes, which have no parent, form the entries of the nodes array.
+	for (CC3Node* aNode in _allNodes) {
+		[aNode linkToPODNodes: _allNodes];
+		if (aNode.isBasePODNode) [self addNode: aNode];
+	}
+}
+
+-(CC3Node*) buildNodeAtIndex: (GLuint) nodeIndex {
+	// Mesh nodes are arranged first
+	if (nodeIndex < self.meshNodeCount) return [self buildMeshNodeAtIndex: nodeIndex];
+
+	// Then light nodes
+	if (nodeIndex < self.meshNodeCount + self.lightCount)
+		return [self buildLightAtIndex: (nodeIndex - self.meshNodeCount)];
+	
+	// Then camera nodes
+	if (nodeIndex < self.meshNodeCount + self.lightCount + self.cameraCount)
+		return [self buildCameraAtIndex: (nodeIndex - (self.meshNodeCount + self.lightCount))];
+
+	// Finally general nodes, including structural nodes or targets for lights or cameras
+	return [self buildStructuralNodeAtIndex: nodeIndex];
+}
+
+-(CC3Node*) buildStructuralNodeAtIndex: (GLuint) nodeIndex {
+	if ( [self isBoneNode: nodeIndex] )
+		return [self.boneNodeClass nodeAtIndex: nodeIndex fromPODResource: self];
+	return [self.structuralNodeClass nodeAtIndex: nodeIndex fromPODResource: self];
+}
+
+-(PODStructPtr) nodePODStructAtIndex: (GLuint) nodeIndex { return &self.pvrtModelImpl->pNode[nodeIndex]; }
+
+-(BOOL) isNodeIndex: (GLint) aNodeIndex ancestorOfNodeIndex: (GLint) childIndex {
+
+	// Return YES if nodes are the same
+	if (aNodeIndex == childIndex) return YES;
+
+	// Get the SPOD structure of the child, and extract the index of its parent node.
+	// Return no parent
+	SPODNode* psn = (SPODNode*)[self nodePODStructAtIndex: childIndex];
+	GLint parentIndex = psn->nIdxParent;
+	if (parentIndex < 0) return NO;
+
+	// Invoke recursion on the index of the parent node
+	return [self isNodeIndex: aNodeIndex ancestorOfNodeIndex: parentIndex];
+}
+
+-(BOOL) isBoneNode: (GLuint) aNodeIndex {
+	GLuint mCount = self.meshCount;
+	// Cycle through the meshes
+	for (GLuint mi = 0; mi < mCount; mi++) {
+		SPODMesh* psm = (SPODMesh*)[self meshPODStructAtIndex: mi];
+		CPVRTBoneBatches* pbb = &psm->sBoneBatches;
+
+		// Cycle through the bone batches within each mesh
+		for (GLint batchIndex = 0; batchIndex < pbb->nBatchCnt; batchIndex++) {
+			GLint boneCount = pbb->pnBatchBoneCnt[batchIndex];
+			GLint* boneNodeIndices = &(pbb->pnBatches[batchIndex * pbb->nBatchBoneMax]);
+
+			// Cycle through the bones of each batch. If the bone node is a child of
+			// the specified node, then the specified node is a bone as well.
+			for (GLint boneIndex = 0; boneIndex < boneCount; boneIndex++) {
+				if ( [self isNodeIndex: aNodeIndex ancestorOfNodeIndex: boneNodeIndices[boneIndex]] ) return YES;
+			}
+		}
+	}
+	return NO;
+}
+
+-(void) buildSoftBodyNode {
+	NSArray* myNodes = self.nodes;
+	NSMutableArray* softBodyComponents = [NSMutableArray arrayWithCapacity: myNodes.count];
+	for (CC3Node* baseNode in myNodes)
+		if (baseNode.hasSoftBodyContent) [softBodyComponents addObject: baseNode];
+
+	if (softBodyComponents.count > 0) {
+		NSString* sbName = [NSString stringWithFormat: @"%@-SoftBody", self.name];
+		CC3SoftBodyNode* sbn = [self.softBodyNodeClass nodeWithName: sbName];
+		for (CC3Node* sbc in softBodyComponents) {
+			[sbn addChild: sbc];
+			[self removeNode: sbc];
+		}
+		[sbn bindRestPose];
+		[self addNode: sbn];
+	}
+}
+
+
+#pragma mark Accessing mesh data and building mesh nodes
+
+-(GLuint) meshNodeCount { return _pvrtModel ? self.pvrtModelImpl->nNumMeshNode : 0; }
+
+// mesh nodes appear first in the node array
+-(CC3MeshNode*) meshNodeAtIndex: (GLuint) meshIndex { return (CC3MeshNode*)[self nodeAtIndex: meshIndex]; }
+
+/** If we are vertex skinning, return a skin mesh node, otherwise return a generic mesh node. */
+-(CC3MeshNode*) buildMeshNodeAtIndex: (GLuint) meshNodeIndex {
+	SPODNode* psn = (SPODNode*)[self meshNodePODStructAtIndex: meshNodeIndex];
+	SPODMesh* psm = (SPODMesh*)[self meshPODStructAtIndex: psn->nIdx];
+	if (psm->sBoneBatches.nBatchCnt)
+		return [self.skinMeshNodeClass nodeAtIndex: meshNodeIndex fromPODResource: self];
+	return [self.meshNodeClass nodeAtIndex: meshNodeIndex fromPODResource: self];
+}
+
+// mesh nodes appear first in the node array
+-(PODStructPtr) meshNodePODStructAtIndex: (GLuint) meshIndex { return [self nodePODStructAtIndex: meshIndex]; }
+
+-(GLuint) meshCount { return _pvrtModel ? self.pvrtModelImpl->nNumMesh : 0; }
+
+// Build the array containing all materials in the PVRT structure
+-(void) buildMeshes {
+	GLuint mCount = self.meshCount;
+	for (GLuint i = 0; i < mCount; i++) [_meshes addObject: [self buildMeshAtIndex: i]];
+}
+
+-(CC3Mesh*) meshAtIndex: (GLuint) meshIndex { return (CC3Mesh*)[_meshes objectAtIndex: meshIndex]; }
+
+// Deprecated method.
+-(CC3Mesh*) meshModelAtIndex: (GLuint) meshIndex { return [self meshAtIndex: meshIndex]; }
+
+-(CC3Mesh*) buildMeshAtIndex: (GLuint) meshIndex {
+	return [self.meshClass meshAtIndex: meshIndex fromPODResource: self];
+}
+
+-(PODStructPtr) meshPODStructAtIndex: (GLuint) meshIndex { return &self.pvrtModelImpl->pMesh[meshIndex]; }
+
+
+#pragma mark Accessing light data and building light nodes
+
+-(GLuint) lightCount { return _pvrtModel ? self.pvrtModelImpl->nNumLight : 0; }
+
+// light nodes appear after all the mesh nodes in the node array
+-(CC3Light*) lightAtIndex: (GLuint) lightIndex {
+	return (CC3Light*)[self nodeAtIndex: (self.meshNodeCount + lightIndex)];
+}
+
+-(CC3Light*) buildLightAtIndex: (GLuint) lightIndex {
+	return [self.lightClass nodeAtIndex: lightIndex fromPODResource: self];
+}
+
+// light nodes appear after all the mesh nodes in the node array
+-(PODStructPtr) lightNodePODStructAtIndex: (GLuint) lightIndex {
+	return [self nodePODStructAtIndex: (self.meshNodeCount + lightIndex)];
+}
+
+-(PODStructPtr) lightPODStructAtIndex: (GLuint) lightIndex { return &self.pvrtModelImpl->pLight[lightIndex]; }
+
+
+#pragma mark Accessing cameras data and building camera nodes
+
+-(GLuint) cameraCount { return _pvrtModel ? self.pvrtModelImpl->nNumCamera : 0; }
+
+-(CC3Camera*) cameraAtIndex: (GLuint) cameraIndex {
+	return (CC3Camera*)[self nodeAtIndex: (self.meshNodeCount + self.lightCount + cameraIndex)];
+}
+
+-(CC3Camera*) buildCameraAtIndex: (GLuint) cameraIndex {
+	return [self.cameraClass nodeAtIndex: cameraIndex fromPODResource: self];
+}
+
+// camera nodes appear after all the mesh nodes and light nodes in the node array
+-(PODStructPtr) cameraNodePODStructAtIndex: (GLuint) cameraIndex {
+	return [self nodePODStructAtIndex: (self.meshNodeCount + self.lightCount + cameraIndex)];
+}
+
+-(PODStructPtr) cameraPODStructAtIndex: (GLuint) cameraIndex {
+	return &self.pvrtModelImpl->pCamera[cameraIndex];
+}
+
+
+#pragma mark Accessing material data and building materials
+
+-(GLuint) materialCount { return _pvrtModel ? self.pvrtModelImpl->nNumMaterial : 0; }
+
+// Fail safely when node references a material that is not in the POD
+-(CC3Material*) materialAtIndex: (GLuint) materialIndex {
+	if (materialIndex >= _materials.count) {
+		LogRez(@"This POD has no material at index %i", materialIndex);
+		return nil;
+	}
+	return (CC3Material*)[_materials objectAtIndex: materialIndex];
+}
+
+-(CC3Material*) materialNamed: (NSString*) aName {
+	NSString* lcName = [aName lowercaseString];
+	GLuint mCnt = self.materialCount;
+	for (GLuint i = 0; i < mCnt; i++) {
+		CC3Material* aMat = [self materialAtIndex: i];
+		if ([[aMat.name lowercaseString] isEqualToString: lcName]) return aMat;
+	}
+	return nil;
+}
+
+// Build the array containing all materials in the PVRT structure
+-(void) buildMaterials {
+	GLuint mCount = self.materialCount;
+	for (GLuint i = 0; i < mCount; i++) [_materials addObject: [self buildMaterialAtIndex: i]];
+}
+
+-(CC3Material*) buildMaterialAtIndex: (GLuint) materialIndex {
+	return [self.materialClass materialAtIndex: materialIndex fromPODResource: self];
+}
+
+-(PODStructPtr) materialPODStructAtIndex: (GLuint) materialIndex {
+	return &self.pvrtModelImpl->pMaterial[materialIndex];
+}
+
+
+#pragma mark Accessing texture data and building textures
+
+-(GLuint) textureCount { return _pvrtModel ? self.pvrtModelImpl->nNumTexture : 0; }
+
+-(CC3Texture*) textureAtIndex: (GLuint) textureIndex {
+	id tex = [_textures objectAtIndex: textureIndex];
+	return (tex != placeHolder) ? (CC3Texture*)tex : nil;
+}
+
+-(void) buildTextures {
+	GLuint tCount = self.textureCount;
+	
+	// Build the array containing all textures in the PVRT structure
+	for (GLuint i = 0; i < tCount; i++) {
+		CC3Texture* tex = [self buildTextureAtIndex: i];
+		// Add the texture, or if it couldn't be built, an empty texture
+		[_textures addObject: (tex ? tex : placeHolder)];
+	}
+}
+
+/** Loads the texture file from the directory indicated by the directory property. */
+-(CC3Texture*) buildTextureAtIndex: (GLuint) textureIndex {
+	SPODTexture* pst = (SPODTexture*)[self texturePODStructAtIndex: textureIndex];
+	NSString* texFile = [NSString stringWithUTF8String: pst->pszName];
+	NSString* texPath = [self.directory stringByAppendingPathComponent: texFile];
+	CC3Texture* tex = [CC3Texture textureFromFile: texPath];
+	tex.textureParameters = _textureParameters;
+	LogRez(@"Creating %@ at POD index %u from: '%@'", tex, textureIndex, texPath);
+	return tex;
+}
+
+-(PODStructPtr) texturePODStructAtIndex: (GLuint) textureIndex {
+	return &self.pvrtModelImpl->pTexture[textureIndex];
+}
+
+
+#pragma mark Content classes
+
+-(Class) structuralNodeClass { return [CC3PODNode class]; }
+
+-(Class) meshNodeClass { return [CC3PODMeshNode class]; }
+
+-(Class) meshClass { return [CC3PODMesh class]; }
+
+-(Class) materialClass { return [CC3PODMaterial class]; }
+
+-(Class) skinMeshNodeClass { return [CC3PODSkinMeshNode class]; }
+
+-(Class) boneNodeClass { return [CC3PODBone class]; }
+
+-(Class) softBodyNodeClass { return [CC3SoftBodyNode class]; }
+
+-(Class) lightClass { return [CC3PODLight class]; }
+
+-(Class) cameraClass { return [CC3PODCamera class]; }
+
+-(Class) pfxResourceClass { return [CC3PFXResource class]; }
+
 @end
+
+
+#pragma mark -
+#pragma mark Adding animation to nodes
+
+@implementation CC3Node (PODAnimation)
+
+-(void) addAnimationFromPODFile: (NSString*) podFilePath asTrack: (GLuint) trackID {
+	[self addAnimationInResource: [CC3PODResource resourceFromFile: podFilePath ] asTrack: trackID];
+}
+
+-(GLuint) addAnimationFromPODFile: (NSString*) podFilePath {
+	return [self addAnimationInResource: [CC3PODResource resourceFromFile: podFilePath ]];
+}
+
+@end
+
+

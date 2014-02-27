@@ -1,9 +1,9 @@
 /*
  * CC3PODNode.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -37,15 +37,14 @@
 /**
  * A CC3Node extracted from a POD file.
  *
- * This is a concrete implementation of the CC3Node category PVRPOD. 
- * You should use this class instead of instantiating CC3Node directly
- * when using POD-based nodes, since the CC3Node PVRPOD category itself
- * cannot implement the added internal state.
+ * This is a concrete implementation of the CC3Node category PVRPOD.  You should use this
+ * class instead of instantiating CC3Node directly when using POD-based nodes, since the
+ * CC3Node PVRPOD category itself cannot implement the added internal state.
  */
 @interface CC3PODNode : CC3Node {
-	int podIndex;
-	int podContentIndex;
-	int podParentIndex;
+	GLint _podIndex;
+	GLint _podContentIndex;
+	GLint _podParentIndex;
 }
 
 @end

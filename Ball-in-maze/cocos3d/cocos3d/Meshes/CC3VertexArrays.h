@@ -1,11 +1,10 @@
 /*
  * CC3VertexArrays.h
  *
- * cocos3d 0.7.2
- * Author: Bill Hollings, Chris Myers
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * cocos3d 2.0.0
+ * Author: Bill Hollings
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
- * Copyright (c) 2011 Chris Myers. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -33,6 +32,7 @@
 #import "CC3Identifiable.h"
 #import "CC3Material.h"
 #import "CC3NodeVisitor.h"
+#import "CC3ShaderSemantics.h"
 
 
 #pragma mark -
@@ -55,16 +55,16 @@
  */
 @interface CC3VertexArrayContent : NSObject {
 @public
-	GLvoid* vertices;
-	GLuint vertexCount;
-//	GLuint allocatedVertexCapacity;
-	GLuint vertexStride;
-	GLuint bufferID;
-	GLenum bufferUsage;
-	NSRange dirtyVertexRange;
-	BOOL shouldAllowVertexBuffering : 1;
-	BOOL shouldReleaseRedundantData : 1;
-	BOOL wasVertexCapacityChanged : 1;		// Future use to track dirty vertex range
+	GLvoid* _vertices;
+	GLuint _vertexCount;
+//	GLuint _allocatedVertexCapacity;
+	GLuint _vertexStride;
+	GLuint _bufferID;
+	GLenum _bufferUsage;
+	NSRange _dirtyVertexRange;
+	BOOL _shouldAllowVertexBuffering : 1;
+	BOOL _shouldReleaseRedundantContent : 1;
+	BOOL _wasVertexCapacityChanged : 1;		// Future use to track dirty vertex range
 }
 
 @end
@@ -92,7 +92,7 @@
  * The CC3VertexArray instance also manages buffering the content to the GL engine, including
  * loading it into a server-side GL vertex buffer object (VBO) if desired. Once loaded into
  * the GL engine buffers, the underlying content can be released from the CC3VertexArray instance,
- * thereby freeing memory, by using the releaseRedundantData method.
+ * thereby freeing memory, by using the releaseRedundantContent method.
  *
  * The CC3DrawableVertexArray abstract subclass adds the functionality to draw the vertex
  * content to the display through the GL engine.
@@ -126,29 +126,31 @@
  *     never what you intend to do, and results in significant redundant content in memory.
  *     Instead, consider creating a copy of one of the vertex arrays, and then manually
  *     populating the others so that the interleaved vertex content can be shared.
- *   - If the value of the shouldReleaseRedundantData property of the original vertex
- *     array is YES and releaseRedundantData has been invoked, there will be no vertex
+ *   - If the value of the shouldReleaseRedundantContent property of the original vertex
+ *     array is YES and releaseRedundantContent has been invoked, there will be no vertex
  *     content to be copied.
  *   - The new vertex array will not have a GL vertex buffer object associated with it.
  *     To buffer the vertex content of the new vertex array, invoke the createGLBuffer method
  *     on the new vertex array.
  */
 @interface CC3VertexArray : CC3Identifiable {
-//	CC3VertexArrayContent* vertexContent;
-	GLuint elementOffset;
-	GLint elementSize;
-	GLenum elementType;
-	GLuint allocatedVertexCapacity;
+	//	CC3VertexArrayContent* _vertexContent;
+	GLuint _elementOffset;
+	GLint _elementSize;
+	GLenum _elementType;
+	GLuint _allocatedVertexCapacity;
 
-	GLvoid* vertices;
-	GLuint vertexCount;
-	GLuint vertexStride;
-	GLuint bufferID;
-	GLenum bufferUsage;
-//	NSRange dirtyVertexRange;
-	BOOL shouldAllowVertexBuffering : 1;
-	BOOL shouldReleaseRedundantData : 1;
-	BOOL wasVertexCapacityChanged : 1;		// Future use to track dirty vertex range
+//	NSRange _dirtyVertexRange;
+	GLvoid* _vertices;
+	GLuint _vertexCount;
+	GLuint _bufferID;
+	GLenum _bufferUsage;
+	GLenum _semantic;
+	GLuint _vertexStride : 8;
+	BOOL _shouldNormalizeContent : 1;
+	BOOL _shouldAllowVertexBuffering : 1;
+	BOOL _shouldReleaseRedundantContent : 1;
+	BOOL _wasVertexCapacityChanged : 1;		// Future use to track dirty vertex range
 }
 
 /**
@@ -159,6 +161,28 @@
  * to access or set this property.
  */
 //@property(nonatomic, retain) CC3VertexArrayContent* vertexContent;
+
+/**
+ * Indicates the vertex attribute semantic of this array.
+ *
+ * Under OpenGL ES 2, this values are used to match a vertex array to its semantic usage
+ * within a GLSL vertex shader.
+ *
+ * The initial value of this property is set by from the defaultSemantic class property,
+ * which subclasses override to provide an appropriate semantic value from the
+ * CC3VertexContentSemantic enumeration, based on the vertex array type.
+ *
+ * The app may change this property to a custom value if desired. The custom value should be
+ * kept within the range defined by kCC3SemanticAppBase and kCC3SemanticMax.
+ */
+@property(nonatomic, assign) GLenum semantic;
+
+/**
+ * The default value for the semantic property.
+ *
+ * Each subclass will provide an appropriate value from the CC3VertexContentSemantic enumeration.
+ */
++(GLenum) defaultSemantic;
 
 /**
  * A pointer to the underlying vertex content. If the underlying content memory is assigned
@@ -277,6 +301,24 @@
 
 /** @deprecated Renamed to vertexStride. */
 @property(nonatomic, assign) GLuint elementStride DEPRECATED_ATTRIBUTE;
+
+/**
+ * Indicates whether the vertex content should be normalized during drawing.
+ *
+ * This property applies only to OpenGL ES 2. When using OpenGL ES 1, this property can be ignored.
+ *
+ * Under OpenGL ES 2, vertex content that is provided in an integer format (eg. the elementType property
+ * is set to anything other than GL_FLOAT), this property indicates whether the element content should
+ * be normalized, by being divided by their maximum range, to convert them into floating point variables
+ * between 0 & 1 (for unsigned integer types), or -1 & +1 (for signed integer types).
+ *
+ * If this property is set to YES, the element content will be normalized, otherwise it will be
+ * used as is. The normalization activity takes place in the GL engine.
+ *
+ * The default value of this property is NO, indicating that the element content will not be
+ * normalized during drawing.
+ */
+@property(nonatomic, assign) BOOL shouldNormalizeContent;
 
 /**
  * If the underlying content has been loaded into a GL engine vertex buffer object, this
@@ -491,7 +533,7 @@
  * It is safe to call this method even if GL buffers have not been created.
  * 
  * This method may be invoked at any time to free up GL memory, but only if this vertex
- * array will not be used again, or if the content was not released by releaseRedundantData.
+ * array will not be used again, or if the content was not released by releaseRedundantContent.
  * This would be the case if the allocatedVertexCapacity property was not set.
  *
  * This method is invoked automatically when this instance is deallocated.
@@ -516,20 +558,23 @@
 
 /**
  * Indicates whether this instance should release the content held in the elments array
- * when the releaseRedundantData method is invoked.
+ * when the releaseRedundantContent method is invoked.
  *
  * The initial value of this property is YES. In most cases, this is appropriate,
  * but in some circumstances it might make sense to retain some content (usually the
  * vertex locations) in main memory for potantial use in collision detection, etc.
  */
-@property(nonatomic, assign) BOOL shouldReleaseRedundantData;
+@property(nonatomic, assign) BOOL shouldReleaseRedundantContent;
+
+/** @deprecated Renamed to shouldReleaseRedundantContent. */
+@property(nonatomic, assign) BOOL shouldReleaseRedundantData DEPRECATED_ATTRIBUTE;
 
 /**
  * Once the vertices content has been buffered into a GL vertex buffer object (VBO)
  * within the GL engine, via the createGLBuffer method, this method can be used
  * to release the content in main memory that is now redundant.
  *
- * If the shouldReleaseRedundantData property is set to NO, or if the vertices
+ * If the shouldReleaseRedundantContent property is set to NO, or if the vertices
  * content has not been successfully buffered to a VBO in the GL engine. this method
  * does nothing. It is safe to invokde this method even if createGLBuffer has not
  * been invoked, and even if VBO buffering was unsuccessful.
@@ -540,41 +585,20 @@
  *
  * Subclasses may extend this behaviour to remove content loaded, for example, from files,
  * but should ensure that content is only released if bufferId is valid (not zero),
- * and the shouldReleaseRedundantData property is set to YES.
+ * and the shouldReleaseRedundantContent property is set to YES.
  */
--(void) releaseRedundantData;
+-(void) releaseRedundantContent;
+
+/** @deprecated Renamed to releaseRedundantContent. */
+-(void) releaseRedundantData DEPRECATED_ATTRIBUTE;
 
 /**
- * Binds the GL engine to the underlying vertex content, if needed, in preparation for drawing.
+ * Binds the vertex content to the vertex attribute at the specified index in the GL engine.
  *
- * This implementation first invokes the switchingArray method on this instance to determine
- * if this vertex array is different than the vertex array that was last bound to the GL
- * engine. If this vertex array is indeed different, this method invokes the bindGL method,
- * otherwise it does nothing.
- * 
- * This is invoked automatically from the draw method of the CC3VertexArrayMesh
- * containing this instance. Usually, the application never needs to invoke this method directly.
- */
--(void) bindWithVisitor: (CC3NodeDrawingVisitor*) visitor;
-
-/**
- * Unbinds the GL engine from the vertex aspect managed by this instance.
- * 
- * This implementation simply delegates to the unbind class method.
+ * This is invoked automatically from the CC3Mesh containing this instance.
  * Usually, the application never needs to invoke this method directly.
  */
--(void) unbind;
-
-/**
- * Unbinds the GL engine from the vertex aspect managed by this class.
- * 
- * This abstract implementation does nothing. Subclasses will override to handle
- * their particular type of vetex aspect.
- *
- * This method is invoked automatically from the CC3VertexArrayMesh instance.
- * Usually, the application never needs to invoke this method directly.
- */
-+(void) unbind;
+-(void) bindContentToAttributeAt: (GLint) vaIdx withVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 
 #pragma mark Accessing vertices
@@ -584,7 +608,7 @@
  * The implementation takes into consideration the vertexStride and elementOffset
  * properties to locate the aspect of interest in this instance.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, or the index is beyond the vertexCount,
  * this method will raise an assertion exception.
  */
@@ -684,26 +708,6 @@
 /** @deprecated Renamed to describeVertices:startingAt:. */
 -(NSString*) describeElements: (GLuint) vtxCount startingAt: (GLuint) startElem DEPRECATED_ATTRIBUTE;
 
-
-#pragma mark Array context switching
-
-/**
- * Resets the tracking of the vertex array switching functionality.
- *
- * This is invoked automatically by the resetAllSwitching method at the beginning of each
- * frame drawing cycle. Usually, the application never needs to invoke this method directly.
- */
-+(void) resetSwitching;
-
-/**
- * Resets the tracking of the vertex array switching functionality for all vertex array subclasses.
- *
- * This is invoked automatically by the resetSwitching method in CC3VertexArrayMesh at the
- * beginning of each frame drawing cycle. Usually, the application never needs to invoke
- * this method directly.
- */
-+(void) resetAllSwitching;
-
 @end
 
 
@@ -728,10 +732,10 @@
  * drawFrom:forCount:withVisitor: method instead of the drawWithVisitor: method.
  */
 @interface CC3DrawableVertexArray : CC3VertexArray {
-	GLenum drawingMode;
-	GLuint stripCount;
-	GLuint* stripLengths;
-	BOOL stripLengthsAreRetained : 1;
+	GLenum _drawingMode;
+	GLuint _stripCount;
+	GLuint* _stripLengths;
+	BOOL _stripLengthsAreRetained : 1;
 }
 
 /**
@@ -759,18 +763,14 @@
  */
 @property(nonatomic, assign) GLuint* stripLengths;
 
-/**
- * An index reference to the first element that will be drawn.
- *
- * This abstract implementation always returns zero. Subclasses will override.
- */
-@property(nonatomic, readonly) GLuint firstElement;
+/** @deprecated Renamed to firstVertex on CC3VertexLocations. */
+@property(nonatomic, readonly) GLuint firstElement DEPRECATED_ATTRIBUTE;
 
 /**
  * Draws the vertices, either in strips, or in a single call, depending on the value
  * of the stripCount property.
  *
- * This method is invoked automatically from the draw method of CC3VertexArrayMesh.
+ * This method is invoked automatically from the draw method of CC3Mesh.
  */
 -(void) drawWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
@@ -875,30 +875,32 @@
  * also responsible for determining the boundingBox of the mesh.
  */
 @interface CC3VertexLocations : CC3DrawableVertexArray {
-	GLuint firstElement;
-	CC3BoundingBox boundingBox;
-	CC3Vector centerOfGeometry;
-	GLfloat radius;
-	BOOL boundaryIsDirty : 1;
-	BOOL radiusIsDirty : 1;
+	GLuint _firstVertex;
+	CC3Box _boundingBox;
+	CC3Vector _centerOfGeometry;
+	GLfloat _radius;
+	BOOL _boundaryIsDirty : 1;
+	BOOL _radiusIsDirty : 1;
 }
 
 /**
  * An index reference to the first element that will be drawn.
  *
- * Typically, all vertices are to be drawn, and this property will be zero.
- * In some applications, large sets of underlying content may be used for the vertex arrays
- * of more than one mesh. In such a case, it may be desirable to start drawing from
- * an element that is not the first element of the array. This property can be set to
- * indicate at which element index to start drawing. If drawing is being performed in
- * strips, this will be the index of the start of the first strip to be drawn.
+ * Typically, all vertices are to be drawn, and this property will be zero. In some applications,
+ * large sets of underlying content may be used for the vertex arrays of more than one mesh.
+ * In such a case, it may be desirable to start drawing from an vertex that is not the first
+ * vertex of the array. This property can be set to indicate at which element index to start drawing.
+ * If drawing is being performed in strips, this will be the index of the start of the first strip to be drawn.
  *
  * The initial value is zero.
  */
-@property(nonatomic, assign) GLuint firstElement;
+@property(nonatomic, assign) GLuint firstVertex;
+
+/** @deprecated Renamed to firstVertex. */
+@property(nonatomic, assign) GLuint firstElement DEPRECATED_ATTRIBUTE;
 
 /** Returns the axially-aligned bounding box of this mesh. */
-@property(nonatomic, readonly) CC3BoundingBox boundingBox;
+@property(nonatomic, readonly) CC3Box boundingBox;
 
 /** Returns the center of geometry of this mesh. */
 @property(nonatomic, readonly) CC3Vector centerOfGeometry;
@@ -921,7 +923,7 @@
  * This implementation takes into consideration the elementSize property. If the value
  * of the elementSize property is 2, the returned vector will contain zero in the Z component.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(CC3Vector) locationAt: (GLuint) index;
@@ -943,7 +945,7 @@
  * method on all mesh nodes that use this vertex array, to ensure that the boundingVolume
  * encompasses the new vertex location.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setLocation: (CC3Vector) aLocation at: (GLuint) index;
@@ -960,7 +962,7 @@
  * in the W component. If the value of the elementSize property is 2, the returned
  * vector will contain zero in the Z component and one in the W component.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(CC3Vector4) homogeneousLocationAt: (GLuint) index;
@@ -982,7 +984,7 @@
  * method on all mesh nodes that use this vertex array, to ensure that the boundingVolume
  * encompasses the new vertex location.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setHomogeneousLocation: (CC3Vector4) aLocation at: (GLuint) index;
@@ -1093,7 +1095,7 @@
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(CC3Vector) normalAt: (GLuint) index;
@@ -1105,10 +1107,45 @@
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setNormal: (CC3Vector) aNormal at: (GLuint) index;
+
+/** Reverses the direction of all of the normals in this mesh. */
+-(void) flipNormals;
+
+@end
+
+
+#pragma mark -
+#pragma mark CC3VertexTangents
+
+/** A CC3VertexArray that manages the tangent or bitangent aspect of an array of vertices. */
+@interface CC3VertexTangents : CC3VertexArray {}
+
+/**
+ * Returns the tangent element at the specified index in the underlying vertex content.
+ *
+ * The index refers to vertices, not bytes. The implementation takes into consideration
+ * the vertexStride and elementOffset properties to access the correct element.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(CC3Vector) tangentAt: (GLuint) index;
+
+/**
+ * Sets the tangent element at the specified index in the underlying vertex content to
+ * the specified tangent value.
+ *
+ * The index refers to vertices, not bytes. The implementation takes into consideration
+ * the vertexStride and elementOffset properties to access the correct element.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(void) setTangent: (CC3Vector) aTangent at: (GLuint) index;
 
 @end
 
@@ -1128,7 +1165,7 @@
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(ccColor4F) color4FAt: (GLuint) index;
@@ -1144,7 +1181,7 @@
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setColor4F: (ccColor4F) aColor at: (GLuint) index;
@@ -1158,7 +1195,7 @@
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(ccColor4B) color4BAt: (GLuint) index;
@@ -1174,7 +1211,7 @@
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setColor4B: (ccColor4B) aColor at: (GLuint) index;
@@ -1242,9 +1279,9 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * textures to be used with 3D meshes.
  */
 @interface CC3VertexTextureCoordinates : CC3VertexArray {
-	CGSize mapSize;
-	CGRect textureRectangle;
-	BOOL expectsVerticallyFlippedTextures : 1;
+	CGSize _mapSize;
+	CGRect _textureRectangle;
+	BOOL _expectsVerticallyFlippedTextures : 1;
 }
 
 /**
@@ -1253,7 +1290,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(ccTex2F) texCoord2FAt: (GLuint) index;
@@ -1265,7 +1302,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setTexCoord2F: (ccTex2F) aTex2F at: (GLuint) index;
@@ -1274,17 +1311,18 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * Indicates whether the texture coordinates of this mesh expects that the texture
  * was flipped upside-down during texture loading.
  * 
- * The vertical axis of the coordinate system of OpenGL is inverted relative to
- * the iOS view coordinate system. This results in textures from most file formats
- * being oriented upside-down, relative to the OpenGL coordinate system. All file
- * formats except PVR format will be oriented upside-down after loading.
+ * The vertical axis of the coordinate system of OpenGL is inverted relative to the
+ * CoreGraphics view coordinate system. As a result, some texture file formats may be
+ * loaded upside down. Most common file formats, including JPG, PNG & PVR are loaded
+ * right-way up, but using proprietary texture formats developed for other platforms
+ * may result in textures being loaded upside-down.
  *
  * The value of this property is used in combination with the value of the 
- * isFlippedVertically property of a texture to determine whether the texture
+ * isUpsideDown property of a texture to determine whether the texture
  * will be oriented correctly when displayed using these texture coordinates.
  *
  * The alignWithTexture: method compares the value of this property with the
- * isFlippedVertically property of the texture to automatically determine
+ * isUpsideDown property of the texture to automatically determine
  * whether these texture coordinates need to be flipped vertically in order
  * to display the texure correctly, and will do so if needed. As part
  * of that inversion, the value of this property will also be flipped, to
@@ -1292,20 +1330,16 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  *
  * The value of this property does not affect the behaviour of, nor
  * is affected by, the flipVertically , alignWithInvertedTexture:,
- * alignWithTextureMapSize:, or alignWithInvertedTextureMapSize: methods.
+ * alignWithTextureCoverage:, or alignWithInvertedTextureCoverage: methods.
  * 
  * The initial value of this property is determined by the value of the class-side
  * defaultExpectsVerticallyFlippedTextures property at the time an instance of
  * this class is created and initialized. If you want all meshes to behave the same
  * way, with respect to this property, set the value of that class-side property.
  * 
- * The value of this property is set when the underlying mesh texture
- * coordinates are built or loaded. See the same property on the CC3Resource
- * class to understand how this property is set during mesh resource loading.
- * 
- * When building meshes programmatically, you should endeavour to design the
- * mesh so that this property will be YES if you will be using vertically-flipped
- * textures (all texture file formats except PVR).
+ * The value of this property is set when the underlying mesh texture coordinates are
+ * built or loaded. See the same property on the CC3NodesResource class to understand
+ * how this property is set during mesh resource loading.
  */
 @property(nonatomic, assign) BOOL expectsVerticallyFlippedTextures;
 
@@ -1316,7 +1350,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  *
  * See the notes for that property for more information.
  *
- * The initial value of this class-side property is YES.
+ * The initial value of this class-side property is NO.
  */
 +(BOOL) defaultExpectsVerticallyFlippedTextures;
 
@@ -1327,7 +1361,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  *
  * See the notes for that property for more information.
  *
- * The initial value of this class-side property is YES.
+ * The initial value of this class-side property is NO.
  */
 +(void) setDefaultExpectsVerticallyFlippedTextures: (BOOL) expectsFlipped;
 
@@ -1341,12 +1375,12 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * The texture map size indicates the usable size of the texture, and invoking
  * this method will align these texture coordinates with that usable size.
  *
- * For the sake of efficiency, if the specified texMapSize is the same as the
+ * For the sake of efficiency, if the specified texCoverage is the same as the
  * value submitted in the previous invocation (or is equal to (1, 1) on the
  * first invocation), this method does nothing, to avoid updating the texture
  * coordinates when no change has occurred.
  *
- * For subsequent invocations, if the specified texMapSize is the same as the
+ * For subsequent invocations, if the specified texCoverage is the same as the
  * value submitted in the previous invocation, this method does nothing, to
  * avoid updating all the texture coordinates to the value they currently have.
  *
@@ -1354,7 +1388,10 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * This may cause mapping conflicts if the same vertex content is shared by other
  * CC3MeshNodes that use different textures.
  */
--(void) alignWithTextureMapSize: (CGSize) texMapSize;
+-(void) alignWithTextureCoverage: (CGSize) texCoverage;
+
+/** @deprecated Renamed to alignWithTextureCoverage:. */
+-(void) alignWithTextureMapSize: (CGSize) texCoverage DEPRECATED_ATTRIBUTE;
 
 /**
  * Aligns the texture coordinate array with the specfied texture map size,
@@ -1372,15 +1409,18 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * and this method can be used to compensate.
  *
  * This method vertically flips the texture coordinates on each invocation. As a
- * result, unlike the alignWithTextureMapSize: method, this method updates all the
+ * result, unlike the alignWithTextureCoverage: method, this method updates all the
  * texture coordinates on each invocation, regardless of whether the specified
- * texMapSize is the same as on the previous invocation.
+ * texCoverage is the same as on the previous invocation.
  *
  * Care should be taken when using this method, as it changes the actual vertex content.
  * This may cause mapping conflicts if the same vertex content is shared by other
  * CC3MeshNodes that use different textures.
  */
--(void) alignWithInvertedTextureMapSize: (CGSize) texMapSize;
+-(void) alignWithInvertedTextureCoverage: (CGSize) texCoverage;
+
+/** @deprecated Renamed to alignWithInvertedTextureCoverage:. */
+-(void) alignWithInvertedTextureMapSize: (CGSize) texCoverage DEPRECATED_ATTRIBUTE;
 
 /**
  * Aligns the texture coordinate array with the specfied texture.
@@ -1394,16 +1434,16 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * specified texture.
  *
  * If the value of the expectsVerticallyFlippedTextures property is different
- * than the value of the isFlippedVertically property of the specified texture, the
+ * than the value of the isUpsideDown property of the specified texture, the
  * texture coordinates are not oriented vertically for the texture. To align them,
- * this method delegates to the alignWithInvertedTextureMapSize:, passing the mapSize
+ * this method delegates to the alignWithInvertedTextureCoverage:, passing the mapSize
  * of the specified texture, to both align the texture coordinates to the usable size
  * of the texture, and to flip the texture coordinates to align with the texture.
  *
  * If the value of the expectsVerticallyFlippedTextures property is the same
- * as the value of the isFlippedVertically property of the specified texture, the
+ * as the value of the isUpsideDown property of the specified texture, the
  * texture coordinates are correctly oriented vertically for the texture. This
- * method delegates to the alignWithTextureMapSize:, passing the mapSize of the
+ * method delegates to the alignWithTextureCoverage:, passing the mapSize of the
  * specified texture, to align the texture coordinates to the usable size of
  * the texture, but does not flip the texture coordinates.
  *
@@ -1440,7 +1480,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  *
  * This method vertically flips the texture coordinates on each invocation. As a
  * result, unlike the alignWithTexture: method, this method updates all texture
- * coordinates on each invocation, regardless of whether the specified texMapSize
+ * coordinates on each invocation, regardless of whether the specified texCoverage
  * is the same as on the previous invocation.
  *
  * Care should be taken when using this method, as it changes the actual vertex content.
@@ -1491,14 +1531,14 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * and top-right corners must lie between zero and one in both the X and Y directions.
  *
  * The dimensions of the rectangle in this property are independent of the size specified in
- * the  alignWithTextureMapSize: and alignWithInvertedTextureMapSize: methods. A unit rectangle
+ * the  alignWithTextureCoverage: and alignWithInvertedTextureCoverage: methods. A unit rectangle
  * value for this property will automatically take into consideration the adjustment made to
  * the mesh by those methods, and will display only the part of the texture defined by them.
  * Rectangular values for this property that are smaller than the unit rectangle will be
- * relative to the displayable area defined by alignWithTextureMapSize: and
- * alignWithInvertedTextureMapSize:.
+ * relative to the displayable area defined by alignWithTextureCoverage: and
+ * alignWithInvertedTextureCoverage:.
  *
- * As an example, if the alignWithTextureMapSize: method was used to limit the mesh to using
+ * As an example, if the alignWithTextureCoverage: method was used to limit the mesh to using
  * only 80% of the texture (perhaps when using a non-POT texture), and this property was set
  * to a rectangle with origin at (0.5, 0.0) and size (0.5, 0.5), the mesh will be covered by
  * the bottom-right quarter of the usable 80% of the overall texture.
@@ -1548,7 +1588,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * corresponding texture dimension.
  *
  * The dimensions of the repeatFactor are independent of the size specified in the
- * alignWithTextureMapSize: and alignWithInvertedTextureMapSize: methods, or derived
+ * alignWithTextureCoverage: and alignWithInvertedTextureCoverage: methods, or derived
  * from the texture by the alignWithTexture or alignWithInvertedTexture methods.
  * A value of 1.0 for an element in the specified repeatFactor will automatically
  * take into consideration the adjustment made to the mesh by those methods, and will
@@ -1559,29 +1599,6 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * in that dimension, while potentially repeating multiple times in the other dimension.
  */
 -(void) repeatTexture: (ccTex2F) repeatFactor;
-
-/**
- * Unbinds all texture arrays from the specified texture unit in the GL engine
- * by disabling texture array handling in the GL engine for that texture unit.
- *
- * The texture unit value should be set to a number between zero and the maximum number
- * of texture units, which can be read from [CC3OpenGLES11Engine engine].platform.maxTextureUnits.value.
- */
-+(void) unbind: (GLuint) textureUnit;
-
-/**
- * Unbinds all texture arrays from the all texture units at or above the specified texture unit.
- *
- * The texture unit value should be set to a number between zero and the maximum number
- * of texture units, which can be read from [CC3OpenGLES11Engine engine].platform.maxTextureUnits.value.
- */
-+(void) unbindRemainingFrom: (GLuint)textureUnit;
-
-/**
- * Unbinds all texture arrays from all texture units in the GL engine
- * by disabling texture array handling in the GL engine for all texture units.
- */
-+(void) unbind;
 
 @end
 
@@ -1616,7 +1633,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(GLuint) indexAt: (GLuint) index;
@@ -1628,7 +1645,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setIndex: (GLuint) vertexIndex at: (GLuint) index;
@@ -1760,7 +1777,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(GLfloat) pointSizeAt: (GLuint) index;
@@ -1772,7 +1789,7 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setPointSize: (GLfloat) aSize at: (GLuint) index;
@@ -1781,192 +1798,229 @@ static const CGRect kCC3UnitTextureRectangle = { {0.0, 0.0}, {1.0, 1.0} };
 
 
 #pragma mark -
-#pragma mark CC3VertexWeights
+#pragma mark CC3VertexBoneWeights
 
 /**
- * A CC3VertexArray that manages a collection of weights used by each vertex during
- * vertex skinning, which is the manipulation of a soft-body mesh under control of
- * a skeleton of bone nodes.
- * 
- * This vertex array works together with an instace of a CC3VertexMatrixIndices vertex
- * array, and the elementSize property of the two vertex arrays must be equal, and must
- * not be larger than the maximum number of available vertex units for the platform,
- * which can be retreived from [CC3OpenGLES11Engine engine].platform.maxVertexUnits.value.
- */
-@interface CC3VertexWeights : CC3VertexArray
-
-/**
- * Returns the weight element, for the specified vertex unit, at the specified index in
- * the underlying vertex content.
+ * A CC3VertexArray that manages a collection of bone weights for each vertex. Each bone weight
+ * indicates how much that particular bone influences the movement of the vertex for a mesh that
+ * uses vertex skinning. Vertex skinning is the manipulation of a soft-body mesh under control
+ * of a skeleton of bone nodes.
  *
- * The index refers to vertices, not bytes. The implementation takes into consideration
+ * For each vertex, the bone to which the weight should be applied is identified by the bone
+ * index specified in the corresponding entry in the CC3VertexBoneIndices vertex array.
+ *
+ * This vertex array works together with an instace of a CC3VertexBoneIndices vertex array.
+ * The elementSize property of the two vertex arrays must be equal, and under OpenGL ES 1.1,
+ * must not be larger than the maximum number of available bone influences allowed by the 
+ * platform, which can be retreived from CC3OpenGL.sharedGL.maxNumberOfBoneInfluencesPerVertex.
+*/
+@interface CC3VertexBoneWeights : CC3VertexArray
+
+/**
+ * Returns the weight value, for the specified influence index within the vertex, for the
+ * vertex at the specified index within the underlying vertex content.
+ *
+ * The weight indicates how much a particular bone influences the movement of the particular 
+ * vertex. Several weights are stored for each vertex, one for each bone that influences the 
+ * movement of that vertex. The specified influenceIndex parameter must be between zero, and
+ * the elementSize property (inclusive/exclusive respectively).
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * Several weights are stored for each vertex, one per vertex unit, corresponding to
- * one for each bone that influences the location of the vertex. The specified vertexUnit
- * parameter must be between zero inclusive, and the elementSize property, exclusive.
- *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
--(GLfloat) weightForVertexUnit: (GLuint) vertexUnit at: (GLuint) index;
+-(GLfloat) weightForBoneInfluence: (GLuint) influenceIndex at: (GLuint) vtxIndex;
 
 /**
- * Sets the weight element, for the specified vertex unit, at the specified index in
- * the underlying vertex content, to the specified value.
+ * Sets the weight value, for the specified influence index within the vertex, for the
+ * vertex at the specified index within the underlying vertex content.
  *
- * The index refers to vertices, not bytes. The implementation takes into consideration
+ * The weight indicates how much a particular bone influences the movement of the particular
+ * vertex. Several weights are stored for each vertex, one for each bone that influences the
+ * movement of that vertex. The specified influenceIndex parameter must be between zero, and
+ * the elementSize property (inclusive/exclusive respectively).
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * Several weights are stored for each vertex, one per vertex unit, corresponding to
- * one for each bone that influences the location of the vertex. The specified vertexUnit
- * parameter must be between zero inclusive, and the elementSize property, exclusive.
- *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
--(void) setWeight: (GLfloat) aWeight forVertexUnit: (GLuint) vertexUnit at: (GLuint) index;
+-(void) setWeight: (GLfloat) weight forBoneInfluence: (GLuint) influenceIndex at: (GLuint) vtxIndex;
 
 /**
- * Returns a pointer to an array of the weight elements at the specified vertex
- * index in the underlying vertex content.
+ * Returns the weights of all of the bones that influence the movement of the vertex at the
+ * specified index within the underlying vertex content.
  *
- * Several weights are stored for each vertex, one per vertex unit, corresponding
- * to one for each bone that influences the location of the vertex. The number of
- * elements in the returned array is the same for all vertices in this array, and
- * can be retrieved from the elementSize property.
+ * Several weights are stored for each vertex, one for each bone that influences the movement
+ * of the vertex. The number of elements in the returned array is the same for each vertex
+ * in this vertex array, as defined by the elementSize property.
  *
- * The index refers to vertices, not bytes. The implementation takes into consideration
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct vertices.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
--(GLfloat*) weightsAt: (GLuint) index;
+-(GLfloat*) boneWeightsAt: (GLuint) vtxIndex;
 
 /**
- * Sets the weight elements at the specified vertex index in the underlying vertex content,
- * to the values in the specified array.
+ * Sets the weights of all of the bones that influence the movement of the vertex at the
+ * specified index within the underlying vertex content.
  *
- * The index refers to vertices, not bytes. The implementation takes into consideration
- * the vertexStride and elementOffset properties to access the correct element.
+ * Several weights are stored for each vertex, one for each bone that influences the movement
+ * of the vertex. The number of elements in the specified input array must therefore be at 
+ * least as large as the value of the elementSize property.
  *
- * Several weights are stored for each vertex, one per vertex unit, corresponding
- * to one for each bone that influences the location of the vertex. The number of
- * weight elements is the same for all vertices in this array, and can be retrieved
- * from the elementSize property. The number of elements in the specified input
- * array must therefore be at least as large as the value of the elementSize property.
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * the vertexStride and elementOffset properties to access the correct vertices.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
--(void) setWeights: (GLfloat*) weights at: (GLuint) index;
+-(void) setBoneWeights: (GLfloat*) weights at: (GLuint) vtxIndex;
+
+
+#pragma mark Deprecated methods
+
+/** *@deprecated Renamed to weightForBoneInfluence:at:. */
+-(GLfloat) weightForVertexUnit: (GLuint) vertexUnit at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to setWeight:forBoneInfluence:at:. */
+-(void) setWeight: (GLfloat) aWeight forVertexUnit: (GLuint) vertexUnit at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to boneWeightsAt:. */
+-(GLfloat*) weightsAt: (GLuint) vtxIndex DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to setBoneWeights:at:. */
+-(void) setWeights: (GLfloat*) weights at: (GLuint) vtxIndex DEPRECATED_ATTRIBUTE;
 
 @end
 
 
 #pragma mark -
-#pragma mark CC3VertexMatrixIndices
+#pragma mark CC3VertexBoneIndices
 
 /**
- * A CC3VertexArray that manages a collection of indices used by each vertex to point
- * to a collection of distinct matrices during vertex skinning. Vertex skinning is
- * the manipulation of a soft-body mesh under control of a skeleton of bone nodes.
- * 
- * This vertex array works together with an instace of a CC3VertexWeights vertex array,
- * and the elementSize property of the two vertex arrays must be equal, and must
- * not be larger than the maximum number of available vertex units for the platform,
- * which can be retreived from [CC3OpenGLES11Engine engine].platform.maxVertexUnits.value.
- */
-@interface CC3VertexMatrixIndices : CC3VertexArray
-
-/**
- * Returns the matrix index element, for the specified vertex unit, at the specified
- * index in the underlying vertex content.
+ * A CC3VertexArray that manages a collection of bone indices for each vertex. Each bone index
+ * indicates one of several bones that influence the location of the vertex for a mesh that
+ * uses vertex skinning. Vertex skinning is the manipulation of a soft-body mesh under control
+ * of a skeleton of bone nodes.
  *
- * The index refers to vertices, not bytes. The implementation takes into consideration
+ * For each vertex, the amount each bone should influence the vertex movement is identified 
+ * by the weight specified in the corresponding entry in the CC3VertexBoneWeights vertex array.
+ *
+ * This vertex array works together with an instace of a CC3VertexBoneWeights vertex array.
+ * The elementSize property of the two vertex arrays must be equal, and under OpenGL ES 1.1,
+ * must not be larger than the maximum number of available bone influences allowed by the
+ * platform, which can be retreived from CC3OpenGL.sharedGL.maxNumberOfBoneInfluencesPerVertex.
+ */
+@interface CC3VertexBoneIndices : CC3VertexArray
+
+/**
+ * Returns the index of the bone, that provides the influence at the specified influence index
+ * within a vertex, for the vertex at the specified index within the underlying vertex content.
+ *
+ * The bone index indicates which bone provides the particular influence for the movement of
+ * the particular vertex. Several bone indices are stored for each vertex, one for each bone
+ * that influences the movement of that vertex. The specified influenceIndex parameter must
+ * be between zero, and the elementSize property (inclusive/exclusive respectively).
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * Several matrix indices are stored for each vertex, one per vertex unit, corresponding
- * to one for each bone that influences the location of the vertex. The specified vertexUnit
- * parameter must be between zero inclusive, and the elementSize property, exclusive.
- *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
--(GLuint) matrixIndexForVertexUnit: (GLuint) vertexUnit at: (GLuint) index;
+-(GLuint) boneIndexForBoneInfluence: (GLuint) influenceIndex at: (GLuint) vtxIndex;
 
 /**
- * Sets the matrix index element, for the specified vertex unit, at the specified index
- * in the underlying vertex content, to the specified value.
+ * Sets the index of the bone, that provides the influence at the specified influence index
+ * within a vertex, for the vertex at the specified index within the underlying vertex content.
  *
- * Several matrix indices are stored for each vertex, one per vertex unit, corresponding
- * to one for each bone that influences the location of the vertex. The specified vertexUnit
- * parameter must be between zero inclusive, and the elementSize property, exclusive.
+ * The bone index indicates which bone provides the particular influence for the movement of
+ * the particular vertex. Several bone indices are stored for each vertex, one for each bone
+ * that influences the movement of that vertex. The specified influenceIndex parameter must
+ * be between zero, and the elementSize property (inclusive/exclusive respectively).
  *
- * The index refers to vertices, not bytes. The implementation takes into consideration
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
--(void) setMatrixIndex: (GLuint) aMatrixIndex forVertexUnit: (GLuint) vertexUnit at: (GLuint) index;
+-(void) setBoneIndex: (GLuint) boneIndex forBoneInfluence: (GLuint) influenceIndex at: (GLuint) vtxIndex;
 
 /**
- * Returns a pointer to an array of the matrix indices at the specified vertex
- * index in the underlying vertex content.
+ * Returns the indices of all of the bones that influence the movement of the vertex at the
+ * specified index within the underlying vertex content.
  *
- * Several matrix index values are stored for each vertex, one per vertex unit,
- * corresponding to one for each bone that influences the location of the vertex.
- * The number of elements in the returned array is the same for all vertices in
- * this array, and can be retrieved from the elementSize property.
- * 
- * The matrix indices can be stored in this array as either type GLushort or type
- * GLubyte. The returned array will be of the type of index stored by this vertex
- * array, and it is up to the application to know which type will be returned,
- * and cast the returned array accordingly. The type can be determined by the
- * elementType property of this array, which will return one of GL_UNSIGNED_SHORT
- * or GL_UNSIGNED_BYTE, respectively.
+ * Several indices are stored for each vertex, one for each bone that influences the movement
+ * of the vertex. The number of elements in the returned array is the same for each vertex
+ * in this vertex array, as defined by the elementSize property.
  *
- * To avoid checking the elementType altogether, you can use the matrixIndexForVertexUnit:at:
- * method, which retrieves the matrix index values one at a time, and automatically converts
- * the stored type to GLushort.
+ * The bone indices can be stored in this array as either type GLushort or type GLubyte.
+ * The returned array will be of the type of index stored by this vertex array, and it is
+ * up to the application to know which type will be returned, and cast the returned array
+ * accordingly. The type can be determined by the elementType property of this array, 
+ * which will return one of GL_UNSIGNED_SHORT or GL_UNSIGNED_BYTE, respectively.
  *
- * The index refers to vertices, not bytes. The implementation takes into consideration
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct vertices.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
--(GLvoid*) matrixIndicesAt: (GLuint) index;
+-(GLvoid*) boneIndicesAt: (GLuint) vtxIndex;
 
 /**
- * Sets the matrix index elements at the specified vertex index in the underlying
- * vertex content, to the values in the specified array.
+ * Sets the indices of all of the bones that influence the movement of the vertex at the
+ * specified index within the underlying vertex content.
  *
- * Several matrix index values are stored for each vertex, one per vertex unit,
- * corresponding to one for each bone that influences the location of the vertex.
- * The number of elements is the same for all vertices in this array, and can be
- * retrieved from the elementSize property. The number of elements in the specified input
- * array must therefore be at least as large as the value of the elementSize property.
- * 
- * The matrix indices can be stored in this array as either type GLushort or type GLubyte.
+ * Several indices are stored for each vertex, one for each bone that influences the movement
+ * of the vertex. The number of elements in the specified input array must therefore be at
+ * least as large as the value of the elementSize property.
+ *
+ * The bone indices can be stored in this array as either type GLushort or type GLubyte.
  * The specified array must be of the type of index stored by this vertex array, and it
  * is up to the application to know which type is required, and provide that type of
  * array accordingly. The type can be determined by the elementType property of this
  * array, which will return one of GL_UNSIGNED_SHORT or GL_UNSIGNED_BYTE, respectively.
  *
- * To avoid checking the elementType altogether, you can use the setMatrixIndex:forVertexUnit:at:
- * method, which sets the matrix index values one at a time, and automatically converts the
- * input type to the correct stored type.
+ * To avoid checking the elementType altogether, you can use the setBoneIndex:forBoneInfluence:at:
+ * method, which sets the bone index values one at a time, and automatically converts the input 
+ * type to the correct stored type.
  *
- * The index refers to vertices, not bytes. The implementation takes into consideration
- * the vertexStride and elementOffset properties to access the correct element.
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * the vertexStride and elementOffset properties to access the correct vertices.
  *
- * If the releaseRedundantData method has been invoked and the underlying
+ * If the releaseRedundantContent method has been invoked and the underlying
  * vertex content has been released, this method will raise an assertion exception.
  */
--(void) setMatrixIndices: (GLvoid*) mtxIndices at: (GLuint) index;
+-(void) setBoneIndices: (GLvoid*) boneIndices at: (GLuint) vtxIndex;
+
+
+#pragma mark Deprecated methods
+
+/** *@deprecated Renamed to boneIndexForBoneInfluence:at:. */
+-(GLuint) matrixIndexForVertexUnit: (GLuint) vertexUnit at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to setBoneIndex:forBoneInfluence:at:. */
+-(void) setMatrixIndex: (GLuint) aMatrixIndex forVertexUnit: (GLuint) vertexUnit at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to boneIndicesAt:. */
+-(GLvoid*) matrixIndicesAt: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to setBoneIndices:at:. */
+-(void) setMatrixIndices: (GLvoid*) mtxIndices at: (GLuint) index DEPRECATED_ATTRIBUTE;
 
 @end
+
+
+#pragma mark Deprecated vertex array classes
+
+#define CC3VertexWeights CC3VertexBoneWeights
+#define CC3VertexMatrixIndices CC3VertexBoneIndices
 

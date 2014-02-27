@@ -1,9 +1,9 @@
 /*
  * CC3ModelSampleFactory.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2011-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2011-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -32,26 +32,10 @@
 #import "CC3ModelSampleFactory.h"
 #import "teapot.h"
 
-@interface CC3ModelSampleFactory (TemplateMethods)
--(CC3VertexArrayMesh*) makeTeapotMeshNamed: (NSString*) aName;
-@end
-
 
 @implementation CC3ModelSampleFactory
 
 @synthesize unicoloredTeapotMesh, multicoloredTeapotMesh, texturedTeapotMesh;
-
--(void) dealloc {
-	[teapotVertexLocations release];
-	[teapotVertexNormals release];
-	[teapotVertexIndices release];
-	[teapotVertexTextureCoordinates release];
-	[teapotVertexColors release];
-	[texturedTeapotMesh release];
-	[multicoloredTeapotMesh release];
-	[unicoloredTeapotMesh release];
-	[super dealloc];
-}
 
 
 #pragma mark Allocation and initialization
@@ -116,9 +100,6 @@
 		vTexCoord[i].u = (vLocs[i].x - vlMin.x) / vlRange.x;
 		vTexCoord[i].v = (vLocs[i].y - vlMin.y) / vlRange.y;
 	}
-	
-	// Indicate that this texture coord array was built assuming a right-side up image.
-	teapotVertexTextureCoordinates.expectsVerticallyFlippedTextures = NO;
 }
 
 // Initialize several static teapot meshes that can be reused in many teapots.
@@ -146,21 +127,20 @@
 	return self;
 }
 
-static CC3ModelSampleFactory* factory;
+static CC3ModelSampleFactory* _factory;
 
 +(CC3ModelSampleFactory*) factory {
-	if (!factory) {
-		factory = [self new];	// statically retained
-	}
-	return factory;
+	if (!_factory) _factory = [self new];
+	return _factory;
 }
+
++(void) deleteFactory { _factory = nil; }
 
 
 #pragma mark Factory methods
 
-// Returns an autoreleased mesh of a teapot named with the specified name
--(CC3VertexArrayMesh*) makeTeapotMeshNamed: (NSString*) aName {
-	CC3VertexArrayMesh* mesh = [CC3VertexArrayMesh meshWithName: aName];
+-(CC3Mesh*) makeTeapotMeshNamed: (NSString*) aName {
+	CC3Mesh* mesh = [CC3Mesh meshWithName: aName];
 	mesh.shouldInterleaveVertices = NO;
 	mesh.vertexLocations = teapotVertexLocations;
 	mesh.vertexNormals = teapotVertexNormals;
@@ -168,7 +148,6 @@ static CC3ModelSampleFactory* factory;
 	return mesh;
 }
 
-// Returns an autoreleased mesh node displaying a teapot in a particular color
 -(CC3MeshNode*) makeUniColoredTeapotNamed: (NSString*) aName withColor: (ccColor4F) color {
 	CC3MeshNode* teapot = [CC3MeshNode nodeWithName: aName];
 	teapot.mesh = unicoloredTeapotMesh;
@@ -177,7 +156,6 @@ static CC3ModelSampleFactory* factory;
 	return teapot;
 }
 
-// Returns an autoreleased mesh node displaying a teapot painted with a color gradient...very funky
 -(CC3MeshNode*) makeMultiColoredTeapotNamed: (NSString*) aName {
 	CC3MeshNode* teapot = [CC3MeshNode nodeWithName: aName];
 	teapot.mesh = multicoloredTeapotMesh;
@@ -185,14 +163,10 @@ static CC3ModelSampleFactory* factory;
 	return teapot;
 }
 
-// Returns an autoreleased mesh node displaying a teapot covered by a cocos2d logo texture
--(CC3MeshNode*) makeLogoTexturedTeapotNamed: (NSString*) aName {
+-(CC3MeshNode*) makeTexturableTeapotNamed: (NSString*) aName {
 	CC3MeshNode* teapot = [CC3MeshNode nodeWithName: aName];
 	teapot.mesh = texturedTeapotMesh;
-	teapot.material = [CC3Material shiny];
-	teapot.texture = [CC3Texture textureFromFile: @"Default.png"];
 	return teapot;
 }
-
 
 @end

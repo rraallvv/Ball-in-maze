@@ -1,9 +1,9 @@
 /*
  * CC3World.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -43,7 +43,7 @@
 #pragma mark Deprecated CC3World
 @implementation CC3World
 
-+(id) world { return [[self new] autorelease]; }
++(id) world { return [self new]; }
 
 // Delegate to legacy in case it has been overridden.
 -(void) initializeScene { [(id<CC3WorldDeprecated>)self initializeWorld]; }

@@ -1,9 +1,9 @@
 /*
  * CC3Identifiable.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,7 +29,10 @@
 
 /** @file */	// Doxygen marker
 
-#import "CC3Foundation.h"
+#import "CC3Cache.h"
+
+
+#pragma mark CC3Identifiable
 
 /**
  * This is a base subclass for any class that uses tags or names to identify individual instances.
@@ -42,10 +45,10 @@
  * When overriding initialization, subclasses typically need only override the most generic
  * initializer, initWithTag:withName:.
  */
-@interface CC3Identifiable : NSObject <NSCopying> {
-	GLuint tag;
-	NSString* name;
-	void* userData;
+@interface CC3Identifiable : NSObject <CC3Cacheable, NSCopying> {
+	GLuint _tag;
+	NSString* _name;
+	GLvoid* _userData;
 }
 
 /**
@@ -56,42 +59,17 @@
 @property(nonatomic, assign) GLuint tag;
 
 /**
- * An arbitrary name for this node. It is not necessary to give all identifiable objects a name,
- * but can be useful for retrieving objects at runtime, and for identifying objects during development.
- * Names need not be unique, are not automatically assigned, and leaving the name as nil is acceptable.
+ * An arbitrary name for this object. It is not necessary to give all identifiable objects
+ * a name, but can be useful for retrieving objects at runtime, and for identifying objects
+ * during development. 
+ *
+ * In general, names need not be unique, are not automatically assigned, and leaving the name
+ * as nil is acceptable.
+ *
+ * Some subclasses are designed so that their instances can be cached. For instances of those
+ * subclasses, the name is required, and must be unique.
  */
-@property(nonatomic, retain) NSString* name;
-
-/**
- * Application-specific data associated with this object.
- *
- * You can use this property to add any data you want to an instance of CC3Identifiable or
- * its concrete subclasses (CC3Node, CC3Mesh, CC3Material, CC3Texture, etc.). Since this is
- * a generic pointer, you can store any type of data, such as an object, structure, primitive,
- * or array.
- *
- * This data is not retained by this instance, and is not managed by the cocos3d framework.
- * It is the responsibility of the application to manage the allocation, retention, and
- * disposal of this data.
- *
- * To assist in managing this data, the methods initUserData and releaseUserData are invoked
- * automatically during the initialization and deallocation of each instance of this class.
- * In this abstract class, these methods do nothing, but, if appropriate, you can override
- * these methods by adding extention categories to the concrete subclasses of CC3Identifiable,
- * (CC3Node, CC3Mesh, CC3Material, CC3Texture, etc.), to create, retain and dispose of the data.
- *
- * Similarly, when copying instances of CC3Identifiable and its subclasses, the
- * copyUserDataFrom: method is invoked in the new copy so that it can copy the data in the
- * original instance to the new instance copy. In this abstract class, the copyUserDataFrom:
- * method does nothing, but, if appropriate, you can override the method by adding extention
- * categories to the concrete subclasses of CC3Identifiable, (CC3Node, CC3Mesh, CC3Material,
- * CC3Texture, etc.), to copy whatever data you have in the userData property.
- *
- * In this abstract class, this property is not retained. You can override the accessor
- * methods by creating extension categories for the concrete subclasses, (CC3Node, CC3Mesh,
- * CC3Material, CC3Texture, etc.), in order to retain the data if appropriate.
- */
-@property(nonatomic, assign) void* userData;
+@property(nonatomic, strong) NSString* name;
 
 /**
  * If this instance does not already have a name, it is derived from the name of the specified
@@ -109,6 +87,20 @@
 -(BOOL) deriveNameFrom: (CC3Identifiable*) another;
 
 /**
+ * If this instance does not already have a name, it is derived from the name of the specified
+ * other CC3Identifiable, if it has one. If this instance has a name already, or if the other
+ * CC3Identifiable does not have a name, the name of this instance is not changed.
+ *
+ * Typically, this is invoked when one CC3Identifiable is added as a component to another.
+ *
+ * This implementation concatenates the value of the specified suffix onto the name of the
+ * specified CC3Identifiable, and sets that into the name property of this instance.
+ *
+ * Returns whether the name of this instance was changed.
+ */
+-(BOOL) deriveNameFrom: (CC3Identifiable*) another usingSuffix: (NSString*) suffix;
+
+/**
  * Returns a string to concatenate to the name of another CC3Identifiable to automatically
  * create a useful name for this instance.
  *
@@ -118,7 +110,77 @@
  * override this property to return a useful identifiable name suffix. A subclass can return
  * nil from this property to indicate that automatic naming should not be performed.
  */
-@property(nonatomic, readonly) NSString* nameSuffix;
+@property(nonatomic, strong, readonly) NSString* nameSuffix;
+
+
+#pragma mark User data
+
+/**
+ * Application-specific data associated with this object.
+ *
+ * You can use this property to add any additional information you want to an instance of 
+ * CC3Identifiable or its concrete subclasses (CC3Node, CC3Mesh, CC3Material, CC3Texture, etc.).
+ * 
+ * If you have non-object data to attach, such as a structure, or a pointer to data in a memory
+ * space (perhaps loaded from a file), you can wrap it in an instance of NSData and attach it here.
+ *
+ * To assist in managing this data, the methods initUserData is invoked automatically during the
+ * initialization and deallocation of each instance of this class. You can override this method
+ * by subclassing, or by adding extention categories to the concrete subclasses of CC3Identifiable,
+ * (CC3Node, CC3Mesh, CC3Material, CC3Texture, etc.), to create or retrieve the data, and attach
+ * it to the new instance.
+ *
+ * When copying instances of CC3Identifiable and its subclasses, the copyUserDataFrom: method
+ * is invoked in the new copy so that it can copy the data from the original instance to the
+ * new instance copy.
+ *
+ * In this abstract class, the copyUserDataFrom: method simply sets the userData property of
+ * the copy to the object returned from the same property in the original instance, without
+ * creating a copy of the userData object. If you need the userData object to be copied as
+ * well, you can override the copyUserDataFrom: method by subclassing, or by adding extention
+ * categories to the concrete subclasses of CC3Identifiable, (CC3Node, CC3Mesh, CC3Material,
+ * CC3Texture, etc.), to copy the userData object and assign it to the new instance.
+ */
+@property(nonatomic, strong) NSObject* userData;
+
+/**
+ * Invoked automatically from the init* family of methods to initialize the userData property
+ * of this instance.
+ *
+ * This implementation simply sets the userData property to nil. You can override this method
+ * in a subclass or by creating extension categories for the concrete subclasses, (CC3Node,
+ * CC3Mesh, CC3Material, CC3Texture, etc.), if the userData can be initialized and retained
+ * in a self-contained manner.
+ *
+ * Alternately, you can leave this method unimplemented, and set the userData property from
+ * outside this instance.
+ */
+-(void) initUserData;
+
+/**
+ * Invoked automatically after this instance has been created as a copy of the specified
+ * instance, to copy the userData property from the original instance to this instance.
+ *
+ * In this abstract class, this method simply sets the userData property of this instance
+ * to the object returned from the same property in the specified original instance, without
+ * creating a copy of the userData object. If you need the userData object to be copied as 
+ * well, you can override this method by subclassing, or by adding extention categories to
+ * the concrete subclasses of CC3Identifiable, (CC3Node, CC3Mesh, CC3Material, CC3Texture,
+ * etc.), to copy the userData object and assign it to the new instance.
+ */
+-(void) copyUserDataFrom: (CC3Identifiable*) another;
+
+/**
+ * @deprecated Under ARC, the userData property is an object that is automatically released
+ * when this instance is deallocated.
+ */
+-(void) releaseUserData DEPRECATED_ATTRIBUTE;
+
+/**
+ * @deprecated Use userData instead.
+ * Under ARC, the userData and sharedUserData properties have identical functionality.
+ */
+@property(nonatomic, strong) NSObject* sharedUserData DEPRECATED_ATTRIBUTE;
 
 
 #pragma mark Allocation and initialization
@@ -143,36 +205,6 @@
  * When overriding initialization, subclasses typically need only override this initializer.
  */
 -(id) initWithTag: (GLuint) aTag withName: (NSString*) aName;
-
-/**
- * Invoked automatically from the init* family of methods to initialize the userData reference.
- *
- * In this abstract class, this method does nothing. You can override this method by creating
- * extension categories for the concrete subclasses, (CC3Node, CC3Mesh, CC3Material, CC3Texture,
- * etc.), if the userData can be initialized and retained in self-contained manner.
- */
--(void) initUserData;
-
-/**
- * Invoked automatically from the dealloc method to release or dispose of the data referenced
- * in the userData property.
- *
- * In this abstract class, this method does nothing. You can override this method by creating
- * extension categories for the concrete subclasses (CC3Node, CC3Mesh, CC3Material, CC3Texture,
- * etc.), to release or dispose of the data referenced in the userData property.
- */
--(void) releaseUserData;
-
-/**
- * Invoked automatically when this instance has been created as a copy of the specified
- * instance.
- *
- * In this abstract class, this method does nothing. You can override this method by creating
- * extension categories for the concrete subclasses (CC3Node, CC3Mesh, CC3Material, CC3Texture,
- * etc.), to copy the userData referenced in the userData property of the specified
- * instance to the userData property of this instance.
- */
--(void) copyUserDataFrom: (CC3Identifiable*) another;
 
 /**
  * Returns a newly allocated (retained) copy of this instance. The new copy will have
@@ -232,7 +264,6 @@
  * the populateFrom: method instead.
  */
 -(id) copyWithName: (NSString*) aName;
-
 
 /**
  * Returns a newly allocated (retained) copy of this instance. The new copy will be an instance
@@ -403,3 +434,5 @@
 -(NSString*) fullDescription;
 
 @end
+
+

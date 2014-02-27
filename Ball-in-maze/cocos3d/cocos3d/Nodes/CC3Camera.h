@@ -1,9 +1,9 @@
 /*
  * CC3Camera.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -31,8 +31,14 @@
 
 #import "CC3Node.h"
 
+/** Defines the orientation of the camera's field of view measurement. */
+typedef enum {
+    CC3FieldOfViewOrientationUndefined,		/**< The FOV orientation is undefined. */
+    CC3FieldOfViewOrientationHorizontal,	/**< The FOV spans the horizontal aspect of the display surface. */
+    CC3FieldOfViewOrientationVertical,		/**< The FOV spans the vertical aspect of the display surface. */
+    CC3FieldOfViewOrientationDiagonal		/**< The FOV spans the diagonal aspect of the display surface. */
+} CC3FieldOfViewOrientation;
 
-@class CC3Scene;
 
 /** Default camera field of view. Measured in degrees. */
 static const GLfloat kCC3DefaultFieldOfView = 45.0f;
@@ -66,61 +72,61 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
  * the parent node. Or the camera node itself might have a light node attached as a child,
  * so that the light will move along with the camera, and point where the camera points.
  *
- * However, when adding a camera to an assembly of nodes, be aware of whether the parent
- * nodes use scaling. To construct the modelviewMatrix, the camera makes heavy use of
- * matrix inversion of the cummulative transform matrix of the camera's transforms and
- * the transforms of all its ancestors. If scaling has not been added to any ancestor
- * nodes, the cummulative transform will be a Rigid transform. Inverting a Rigid transform
- * matrix is much, much faster (orders of magnitude) than inverting a matrix that contains
- * scaling and is therefore not rigid. If possible, try to avoid applying scaling to the
- * ancestor nodes of this camera.
+ * However, when adding a camera to an assembly of nodes, be aware of whether the parent nodes
+ * use scaling. To construct the viewMatrix, the camera makes heavy use of matrix inversion of the
+ * cummulative transform matrix of the camera's transforms and the transforms of all its ancestors.
+ * If scaling has not been added to any ancestor nodes, the cummulative transform will be a Rigid
+ * transform. Inverting a Rigid transform matrix is much, much faster (orders of magnitude) than
+ * inverting a matrix that contains scaling and is therefore not rigid. If possible, try to avoid
+ * applying scaling to the ancestor nodes of this camera.
  *
- * CC3Camera can be pointed in a particular direction, or can be made to track a target
- * node as that node moves, or the camera moves.
+ * Like any CC3Node, CC3Camera can be pointed in a specific direction, pointed at a specific
+ * location, or at a specific node by setting the forwardDirection, targetLocation, or target
+ * properties, respectively.
  *
- * The camera can be configured for either perspective or parallel projection, using
- * the isUsingParallelProjection property. By default, the camera will use perspective
- * projection.
+ * The camera can be configured for either perspective or parallel projection, using the
+ * isUsingParallelProjection property. By default, the camera will use perspective projection.
  *
- * You can use the projectLocation: and projectNode: methods to project global locations
- * within the 3D scene into 2D view coordinates, indicating where on the screen a 3D
- * object appears.
+ * You can use the projectLocation: and projectNode: methods to project global locations within
+ * the 3D scene into 2D view coordinates, indicating where on the screen a 3D object appears.
  *
- * You can use the unprojectPoint: and unprojectPoint:ontoPlane: methods to project a
- * 2D screen position into either a ray (a line) in the 3D scene, or into a specific 
- * intersection location on a 3D plane.
+ * You can use the unprojectPoint: and unprojectPoint:ontoPlane: methods to project a 2D screen
+ * position into either a ray (a line) in the 3D scene, or into a specific intersection location
+ * on a 3D plane.
  *
- * You can use the  moveToShowAllOf:... or moveWithDuration:toShowAllOf: family of
- * methods to have the camera automatically focus on, and display all of, a particular
- * node, or even the whole scene itself.
+ * You can use the  moveToShowAllOf:... or moveWithDuration:toShowAllOf: family of methods to
+ * have the camera automatically focus on, and display all of, a particular node, or even the
+ * whole scene itself.
  *
- * Scaling a camera is a null operation because it scales everything, including the size
- * of objects, but also the distance from the camera to those objects. The effects cancel
- * out, and visually it appears that nothing has changed.
+ * Scaling a camera is a null operation because it scales everything, including the size of objects,
+ * but also the distance from the camera to those objects. The effects cancel out, and visually it
+ * appears that nothing has changed.
  *
- * Therefore, for cameras, the scale and uniformScale properties are not applied to the
- * transform matrix. Instead, the uniformScale property acts as a zoom factor (as if the
- * camera lens is zoomed in or out), and influences the fieldOfView property accordingly.
- * See the description of the fieldOfView property for more information about zooming.
+ * Therefore, for cameras, the scale and uniformScale properties are not applied to the transform
+ * matrix. Instead, the uniformScale property acts as a zoom factor (as if the camera lens is zoomed
+ * in or out), and influences the fieldOfView property accordingly. See the description of the
+ * fieldOfView property for more information about zooming.
  *
  * If you find that objects in the periphery of your view appear elongated, you can adjust
  * the fieldOfView and/or uniformScale properties to reduce this "fish-eye" effect.
  * See the notes of the fieldOfView property for more on this.
  *
- * For cameras, any change in the projection parameters, such as fieldOfView, scale,
- * near or far clipping distances, is considered a transform change, and the
- * transformListeners are sent a notification via the nodeWasTransformed: method
- * when the projection matrix is recalculated.
+ * For cameras, any change in the projection parameters, such as fieldOfView, scale, near or far
+ * clipping distances, is considered a transform change, and the transformListeners are sent a
+ * notification via the nodeWasTransformed: method when the projection matrix is recalculated.
  */
 @interface CC3Camera : CC3Node {
-	CC3Matrix* modelviewMatrix;
-	CC3Frustum* frustum;
-	GLfloat fieldOfView;
-	GLfloat nearClippingDistance;
-	GLfloat farClippingDistance;
-	BOOL hasInfiniteDepthOfField : 1;
-	BOOL isProjectionDirty : 1;
-	BOOL isOpen : 1;
+	CC3Frustum* _frustum;
+	CC3Viewport _viewport;
+	GLfloat _fieldOfView;
+	CC3FieldOfViewOrientation _fieldOfViewOrientation;
+	UIInterfaceOrientation _fieldOfViewAspectOrientation;
+	GLfloat _nearClippingDistance;
+	GLfloat _farClippingDistance;
+	BOOL _isOpen : 1;
+	BOOL _hasInfiniteDepthOfField : 1;
+	BOOL _isProjectionDirty : 1;
+	BOOL _shouldClipToViewport : 1;
 }
 
 /** Returns whether this node is a camera. Returns YES. */
@@ -129,6 +135,43 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
 /**
  * The nominal field of view of this camera, in degrees. The initial value of this
  * property is set to kCC3DefaultFieldOfView.
+ *
+ * The effect of setting this property is affected by the fieldOfViewOrientation,
+ * fieldOfViewAspectOrientation, and  uniformScale properties.
+ *
+ * In handheld devices, the device orientation can change at will, changing the aspect ratio
+ * of the camera viewport. The fieldOfViewOrientation, and fieldOfViewAspectOrientation
+ * properties work together to establish and maintain a consistent perspective, regardless
+ * of the current aspect ratio.
+ *
+ * The fieldOfViewOrientation property indicates whether this fieldOfView value is measured
+ * horizontally, vertically, or diagonally across the display surface. 
+ *
+ * The fieldOfViewAspectOrientation property indicates the orientation (portrait or landscape)
+ * of the display surface to which this fieldOfView value is specified.
+ *
+ * The fieldOfViewOrientation and fieldOfViewAspectOrientation properties combine to
+ * determine whether the fieldOfView value is measured horizontally or vertically, and
+ * whether it was meant to be applied to the long or short side of the display surface.
+ * 
+ * Applying a field of view angle across the short side of the display surface will produce
+ * a somewhat different view perspective than if the same field of view value is applied
+ * across the long side of the display surface.
+ *
+ * Knowing these values, this camera can then automatically adjust the perspective, and keep
+ * it consistent, regardless of the actual orientation of the device and display surface.
+ *
+ * For example, if the fieldOfViewOrientation property indicates that the fieldOfView applies
+ * to the horizontal direction, and the fieldOfViewAspectOrientation indicates that the
+ * horizontal side is longer than the vertical side (landscape), the camera knows that the
+ * fieldOfView property should be applied to the long side, regardless of the orientation
+ * of the device and display surface. 
+ *
+ * As another example, a vertical fieldOfViewOrientation, combined with a landscape
+ * fieldOfViewAspectOrientation corresponds to the commonly-used Hor+ FOV technique.
+ *
+ * See the notes for the fieldOfViewOrientation and fieldOfViewAspectOrientation properties
+ * for more information about how they affect the use of the fieldOfView.
  *
  * The effective field of view is influenced by the value of the uniformScale property,
  * which, for cameras, acts as a zoom factor (as if the camera lens is zoomed in or out).
@@ -151,6 +194,78 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
 @property(nonatomic, assign) GLfloat fieldOfView;
 
 /**
+ * Indicates whether the value of the fieldOfView property is measured horizontally, 
+ * vertically, or diagonally across the display surface.
+ *
+ * This property works together with the fieldOfViewAspectOrientation property to ensure
+ * that the fieldOfView is applied to the camera's perspective on the display surface in
+ * a consistent manner, regardless of changes to the orientation of the display surface
+ * resulting from changes to the orientation of the device. See the notes for the
+ * fieldOfView property for more information about this interaction.
+ *
+ * The initial value of this property is CC3FieldOfViewOrientationDiagonal, indicating
+ * that the fieldOfView is measured diagonally across the display surface. This is a
+ * good general-purpose setting for framing a scene where it is not certain whether the
+ * scene will be displayed with portrait or landscape orientation.
+ *
+ * Specifying a vertical fieldOfViewOrientation is good when you want to frame a scene
+ * containing a character close-up, and you don't want the character's head to be clipped
+ * off if the device is rotated. Combining a vertical fieldOfViewOrientation and a horizontal
+ * fieldOfViewAspectOrientation corresponds to the commonly-used Hor+ FOV technique.
+ */
+@property(nonatomic, assign) CC3FieldOfViewOrientation fieldOfViewOrientation;
+
+/**
+ * Indicates the orientation (portrait or landscape) of the display surface to which the
+ * value of the fieldOfView value is specified.
+ *
+ * This property works together with the fieldOfViewOrientation property to ensure
+ * that the fieldOfView is applied to the camera's perspective on the display surface in
+ * a consistent manner, regardless of changes to the orientation of the display surface
+ * resulting from changes to the orientation of the device. See the notes for the
+ * fieldOfView property for more information about this interaction.
+ *
+ * This property is only concerned with whether the display surface orientation is
+ * portrait or landscape. It doesn't matter whether a portrait orientation is right-side-up
+ * or upside-down, or whether a landscape orientation is left or right. To indicate a portrait
+ * orientation, either UIInterfaceOrientationPortrait or UIInterfaceOrientationPortraitUpsideDown
+ * may be used, and to indicate a landscape orientation, either UIInterfaceOrientationLandscapeLeft
+ * or UIInterfaceOrientationLandscapeRight may be used.
+ *
+ * The initial value of this propety is UIInterfaceOrientationLandscapeLeft, indicating
+ * that the value of the fieldOfView propery is meant to apply to a display surface whose
+ * horizontal side is longer than its vertical side.
+ */
+@property(nonatomic, assign) UIInterfaceOrientation fieldOfViewAspectOrientation;
+
+/**
+ * The effective field of view of this camera, in degrees.
+ *
+ * Since the device orientation can change at will, the effective field of view is associated
+ * with the narrower of the two viewport dimensions (width or height), regardless of orientation.
+ * This allows the perspective to stay the same as the device is rotated by the user.
+ *
+ * The effective field of view is influenced by the value of the uniformScale property,
+ * which, for cameras, acts as a zoom factor (as if the camera lens is zoomed in or out).
+ * The effective field of view of this camera is calculated as (fieldOfView / uniformScale).
+ *
+ * Once a nominal field of view has been set in this property, changing the scale or
+ * uniformScale properties will change the effective field of view accordingly (although
+ * the value of the fieldOfView property remains the same). Scales greater than one zoom in
+ * (objects appear larger), and scales between one and zero zoom out (objects appear smaller).
+ *
+ * Like real-world cameras, larger values of the effective field of view can result in a
+ * "fish-eye" effect, where objects at the periphery of the view can appear elongated.
+ * To reduce this effect, lower the value of fieldOfView property, or increase the value
+ * of the uniformScale property. In doing so, you may need to move your camera further
+ * away from the scene, so that your view will continue to include the same objects.
+ *
+ * The effective field of view is clamped to keep it below 180 degrees, beyond which
+ * the scene would vanish into the distance.
+ */
+@property(nonatomic, readonly) GLfloat effectiveFieldOfView;
+
+/**
  * The distance from the camera to the clipping plane of the camera's frustrum
  * that is nearest to the camera. Initially set to kCC3DefaultNearClippingDistance.
  */
@@ -169,24 +284,37 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
 @property(nonatomic, assign) GLfloat farClippingPlane DEPRECATED_ATTRIBUTE;
 
 /**
+ * The viewport to which the camera will render its view.
+ *
+ * This property must be set prior to attempting to render the camera's view.
+ */
+@property(nonatomic, assign) CC3Viewport viewport;
+
+/**
+ * Indicates whether a scissor test should be used to ensure that redering remains within the viewport.
+ *
+ * The initial value of this property is NO.
+ */
+@property(nonatomic, assign) BOOL shouldClipToViewport;
+
+/**
  * The frustum of the camera.
  * 
  * This is constructed automatically from the field of view and the clipping plane
  * properties. Usually the application never has need to set this property directly.
  */
-@property(nonatomic, retain) CC3Frustum* frustum;
+@property(nonatomic, strong) CC3Frustum* frustum;
 
 /**
- * The matrix that holds the transform from model space to view space. This matrix is distinct
- * from the camera's transformMatrix, which, like that of all nodes, reflects the location,
- * rotation and scale of the camera node in the 3D scene space.
+ * The matrix that holds the transform from model space to view space. 
  *
- * In contrast, the modelviewMatrix combines the inverse of the camera's transformMatrix
- * (because any movement of the camera in scene space has the opposite effect on the view),
- * with the deviceRotationMatrix from the viewportManager of the CC3Scene, to account for
- * the impact of device orientation on the view.
+ * This is a convenience method that simply returns the value of the
+ * globalTransformMatrixInverted property.
  */
-@property(nonatomic, readonly) CC3Matrix* modelviewMatrix;
+@property(nonatomic, strong, readonly) CC3Matrix* viewMatrix;
+
+/** @deprecated Renamed to viewMatrix for a more accurate semantic. */
+@property(nonatomic, strong, readonly) CC3Matrix* modelviewMatrix DEPRECATED_ATTRIBUTE;
 
 /**
  * The projection matrix that takes the camera's modelview and projects it to the viewport.
@@ -195,48 +323,38 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
  * and will be finite in depth. This is contrasted by the projection matrix found in the
  * infiniteProjectionMatrix property.
  */
-@property(nonatomic, readonly) CC3Matrix* projectionMatrix;
+@property(nonatomic, strong, readonly) CC3Matrix* projectionMatrix;
 
 /**
- * The projection matrix modified to have an infinite depth of field,
- * by assuming a farClippingDistance set at infinity.
- */
-@property(nonatomic, readonly) CC3Matrix* infiniteProjectionMatrix;
-
-/**
- * Indicates whether, during rendering, this camera uses an infinite depth of field,
- * with a far clipping plane set at infinity.
+ * Indicates whether, during rendering, this camera uses an infinite depth of field, with a far
+ * clipping plane set at infinity. The setting of this property affects the value of the
+ * projectionMatrix property.
  *
- * This camera calculates two projection matrices. One has a finite depth of field,
- * and is held in the projectionMatrix property. The other has an infinite depth of
- * field and is held in the infiniteProjectionMatrix property.
+ * The frustum of this camera calculates two projection matrices. One has a finite depth of field,
+ * and is held in the frustum finiteProjectionMatrix property. The other has an infinite depth of
+ * field and is held in the frustum infiniteProjectionMatrix property.
  *
- * If the value of this property is set to YES, the projection matrix in the
- * infiniteProjectionMatrix property will be applied to the GL engine during
- * drawing, effectively creating an infinite depth of field.
+ * If the value of this property is set to NO, the projectionMatix property of this camera
+ * returns the value of the finiateProjectionMatrix of the frustum. If the value of this
+ * property is set to YES, the projectionMatix property of this camera returns the value of the
+ * infiniateProjectionMatrix of the frustum, effectively creating an infinite depth of field.
  *
- * If the value of this property is set to NO, the projection matrix in the
- * projectionMatrix property will be applied to the GL engine during drawing,
- * creating a finite depth of field.
- *
- * The value of this property does not affect the culling of nodes outside the camera's
- * frustum. During drawing, regardless of the value of this property, the value of the
- * farClippingDistance property is used to cull objects outside the camera's frustum.
- * This is done to avoid wasting time rendering objects that are too far away to be seen
- * (as defined by the value of the farClippingDistance property).
+ * The value of this property does not affect the culling of nodes outside the camera's frustum.
+ * During drawing, regardless of the value of this property, the value of the farClippingDistance
+ * property is used to cull objects outside the camera's frustum. This is done to avoid wasting
+ * time rendering objects that are too far away to be seen (as defined by the value of the
+ * farClippingDistance property).
  *
  * The initial value of this property is NO, indicating that the camera will have
  * a finite depth of field, based on the value of the farClippingDistance.
  *
- * For the most part, a finite depth of field provides slightly more accurate rendering,
- * and this property should generally be left set to NO. However, there are a few
- * circumstances, such as the rendering of infinite shadow volumes, where clipping
- * at the far clipping plane within the GL engine needs to be avoided. In such
- * circumstances, setting this property to YES can be useful.
+ * For the most part, a finite depth of field provides slightly more accurate rendering, and this
+ * property should generally be left set to NO. However, there are a few circumstances, such as
+ * the rendering of infinite shadow volumes, where clipping at the far clipping plane within the
+ * GL engine needs to be avoided. In such circumstances, setting this property to YES can be useful.
  *
- * Because of its use for rendering shadows, whenever a camera is set into the
- * activeCamera property of the CC3Scene, the value of this property is copied
- * from the old active camera.
+ * Because of its use for rendering shadows, whenever a camera is set into the activeCamera property
+ * of the CC3Scene, the value of this property is copied from the old active camera.
  */
 @property(nonatomic, assign) BOOL hasInfiniteDepthOfField;
 
@@ -284,21 +402,6 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
  */
 -(void) markProjectionDirty;
 
-/**
- * Updates the projection matrix if the projection parameters have been changed.
- *
- * For cameras, a change in projection is considered a transform change, so the
- * transformListeners are sent a notification via the nodeWasTransformed: method.
- *
- * This method is invoked automatically from the CC3Scene after all updates have been
- * made to the models in the 3D scene. Usually, the application never needs to invoke
- * this method directly.
- */
--(void) buildProjection;
-
-/** @deprecated Renamed to buildProjection. */
--(void) buildPerspective DEPRECATED_ATTRIBUTE;
-
 
 #pragma mark Drawing
 
@@ -308,7 +411,7 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
  * This method is called automatically by the CC3Scene at the beginning of each frame
  * drawing cycle. Usually, the application never needs to invoke this method directly.
  */
--(void) open;
+-(void) openWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 /**
  * Closes the camera for drawing operations.
@@ -316,7 +419,7 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
  * This method is called automatically by the CC3Scene at the end of each frame drawing cycle.
  * Usually, the application never needs to invoke this method directly.
  */
--(void) close;
+-(void) closeWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 /**
  * Indicates whether this camera is open.
@@ -1084,6 +1187,39 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
  */
 -(CC3Vector4) unprojectPoint:(CGPoint)cc2Point ontoPlane: (CC3Plane) plane;
 
+/**
+ * Converts the specified point, which is in the coordinate system of the cocos2d layer,
+ * into the coordinate system used by the 3D GL environment, taking into consideration
+ * the size and position of the layer/viewport.
+ *
+ * The cocos2d layer coordinates are relative, and measured from the bottom-left corner
+ * of the layer, which might not be in the corner of the UIView or screen.
+ *
+ * The GL cocordinates are absolute, relative to the bottom-left corner of the underlying
+ * UIView, which does not rotate with device orientation, is always in portait orientation,
+ * and is always in the corner of the screen.
+ *
+ * One can think of the GL coordinates as absolute and fixed relative to the portrait screen,
+ * and the layer coordinates as relative to layer position and size.
+ */
+-(CGPoint) glPointFromCC2Point: (CGPoint) cc2Point;
+
+/**
+ * Converts the specified point, which is in the coordinate system of the 3D GL environment,
+ * into the coordinate system used by the cocos2d layer, taking into consideration the size
+ * and position of the layer/viewport.
+ *
+ * The cocos2d layer coordinates are relative, and measured from the bottom-left corner
+ * of the layer, which might not be in the corner of the UIView or screen.
+ *
+ * The GL cocordinates are absolute, relative to the bottom-left corner of the underlying
+ * UIView, which is always in the corner of the screen.
+ *
+ * One can think of the GL coordinates as absolute and fixed relative to the portrait screen,
+ * and the layer coordinates as relative to layer position and size.
+ */
+-(CGPoint) cc2PointFromGLPoint: (CGPoint) glPoint;
+
 @end
 
 
@@ -1104,21 +1240,31 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
  * locations, rays, shapes, and other bounding volumes intersect the volume of the frustum.
  */
 @interface CC3Frustum : CC3BoundingVolume {
-	CC3Matrix* modelviewMatrix;
-	CC3Matrix* projectionMatrix;
-	CC3Matrix* infiniteProjectionMatrix;
-	CC3Matrix* modelviewProjectionMatrix;
-	CC3Plane planes[6];
-	CC3Vector vertices[8];
-	GLfloat top;
-	GLfloat bottom;
-	GLfloat left;
-	GLfloat right;
-	GLfloat near;
-	GLfloat far;
-	BOOL isUsingParallelProjection : 1;
-	BOOL isInfiniteProjectionDirty : 1;
+	CC3Camera* __unsafe_unretained _camera;
+	CC3Matrix* _finiteProjectionMatrix;
+	CC3Matrix* _infiniteProjectionMatrix;
+	CC3Plane _planes[6];
+	CC3Vector _vertices[8];
+	GLfloat _top;
+	GLfloat _bottom;
+	GLfloat _left;
+	GLfloat _right;
+	GLfloat _near;
+	GLfloat _far;
+	BOOL _isUsingParallelProjection : 1;
+	BOOL _isInfiniteProjectionDirty : 1;
+	BOOL _isProjectionDirty : 1;
 }
+
+/**
+ * The camera whose frustum this is.
+ *
+ * This link-back property is set automatically when this frustum is set into the frustum
+ * property of the camera. Usually the application should never set this property directly.
+ *
+ * This is a weak reference to avoid a retain cycle between the camera and the frustum.
+ */
+@property(nonatomic, unsafe_unretained) CC3Camera* camera;
 
 /** The distance from view center to the top of this frustum at the near clipping plane. */
 @property(nonatomic, readonly) GLfloat top;
@@ -1180,40 +1326,11 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
 /** Returns the location of the far bottom right corner of this frustum, in the global coordinate system. */
 @property(nonatomic, assign, readonly) CC3Vector farBottomRight;
 
+/** A finite projection matrix with the far end at the distance given by the far property. */
+@property(nonatomic, strong, readonly) CC3Matrix* finiteProjectionMatrix;
 
-#pragma mark Allocation and initialization
-
-/** Initializes this instance on the specified modelview matrix. */
--(id) initOnModelviewMatrix: (CC3Matrix*) aMtx;
-
-/** Allocates and initializes an autoreleased instance on the specified modelview matrix. */
-+(id) frustumOnModelviewMatrix: (CC3Matrix*) aMtx;
-
-/**
- * The modelview matrix of the camera.
- *
- * Setting this property will automatically mark the planes as dirty. However, if the
- * contents of the matrix change, this instance will be unaware, and the application
- * is responsible for invoking the markPlanesDirty method to let this instance know.
- */
-@property(nonatomic, retain) CC3Matrix* modelviewMatrix;
-
-/** The projection matrix that takes the camera's modelview and projects it to the viewport. */
-@property(nonatomic, readonly) CC3Matrix* projectionMatrix;
-
-/**
- * The projection matrix modified to have an infinite depth of view,
- * by assuming a farClippingDistance set at infinity.
- */
-@property(nonatomic, readonly) CC3Matrix* infiniteProjectionMatrix;
-
-/**
- * The combined modelview-projection matrix that projects the scene to the viewport.
- *
- * This is simply a multiplicative product of the camera's modelview and projection matrices.
- * It is calculated as part of the recalculation of the frustum planes.
- */
-@property(nonatomic, readonly) CC3Matrix* modelviewProjectionMatrix;
+/** An infinite projection matrix with the far end at infinity. */
+@property(nonatomic, strong, readonly) CC3Matrix* infiniteProjectionMatrix;
 
 /**
  * Indicates whether this frustum uses parallel projection.
@@ -1227,27 +1344,43 @@ static const GLfloat kCC3DefaultFrustumFitPadding = 0.02f;
  */
 @property(nonatomic, assign) BOOL isUsingParallelProjection;
 
+
+#pragma mark Allocation and initialization
+
+/** Allocates and initializes an autoreleased instance. */
++(id) frustum;
+
 /**
- * Sets the six frustum clipping planes and the projectionMatrix from the specified projection parameters.
+ * Sets the six frustum clipping planes and the projectionMatrix from the specified measurements.
+ * The left and bottom measurements are set to the negated right and top measurements, respectively.
+ */
+-(void) populateRight: (GLfloat) right
+			   andTop: (GLfloat) top
+			  andNear: (GLfloat) near
+			   andFar: (GLfloat) far;
+
+/**
+ * @deprecated Use populateRight:andTop:andNear:andFar: instead.
  *
- * The zoomFactor is applied to the field of view to create an effective field of view. A zoomFactor of
- * greater than one will decrease the effective field of view (zooming-in), and a zoomFactor of less than
- * one will increase the effective field of view (zooming-out). For smaller zoomFactor values, the effective
- * field of view is clamped at slightly less than 180 degrees, to avoid an extreme fish-eye effect that
- * makes the scene completely disappear into the distance.
+ * Sets the six frustum clipping planes and the projectionMatrix from the specified view parameters.
  *
- * The aspect parameter indicates the width:height ratio of the viewport. The field of view angle is applied
- * to the narrower dimension, to ensure that overall perspective are consistent across a simple transposition
- * of the viewport dimensions (ie- a rotation of the viewport by 90 degrees).
+ * The aspect parameter indicates the width/height ratio of the viewport. The field of view angle
+ * is applied to the narrower dimension, to ensure that overall perspective are consistent across
+ * a simple transposition of the viewport dimensions (ie- a rotation of the viewport by 90 degrees).
  */
 -(void) populateFrom: (GLfloat) fieldOfView
 		   andAspect: (GLfloat) aspect
 		 andNearClip: (GLfloat) nearClip
-		  andFarClip: (GLfloat) farClip
-			 andZoom: (GLfloat) zoomFactor;
+		  andFarClip: (GLfloat) farClip DEPRECATED_ATTRIBUTE;;
 
 /** @deprecated Renamed to markDirty. */
 -(void) markPlanesDirty DEPRECATED_ATTRIBUTE;
+
+/** @deprecated Use the same property on the camera instead. */
+@property(nonatomic, strong, readonly) CC3Matrix* viewMatrix DEPRECATED_ATTRIBUTE;
+
+/** @deprecated Renamed to viewMatrix for a more accurate semantic. */
+@property(nonatomic, strong, readonly) CC3Matrix* modelviewMatrix DEPRECATED_ATTRIBUTE;
 
 /** @deprecated Renamed to doesIntersectLocation:. */
 -(BOOL) doesIntersectPointAt: (CC3Vector) aLocation DEPRECATED_ATTRIBUTE;

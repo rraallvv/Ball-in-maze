@@ -1,9 +1,9 @@
 /*
  * CC3TextureUnit.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2011-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2011-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -36,35 +36,32 @@
 
 @implementation CC3TextureUnit
 
-@synthesize textureEnvironmentMode, constantColor;
-
--(CC3DOT3RGB) rgbNormalMap { return rgbNormalMap; }
-
--(void) setRgbNormalMap: (CC3DOT3RGB) rgbNormMap { rgbNormalMap = rgbNormMap; }
+@synthesize textureEnvironmentMode=_textureEnvironmentMode, constantColor=_constantColor;
+@synthesize rgbNormalMap=_rgbNormalMap;
 
 -(CC3Vector) lightDirection {
 	
 	// Extract half-scaled normal vector from constantColor, according to RGB <-> normal mapping
 	CC3Vector hv;
-	switch (rgbNormalMap) {
+	switch (_rgbNormalMap) {
 		case kCC3DOT3RGB_XZY:
-			hv = cc3v(constantColor.r, constantColor.b, constantColor.g);
+			hv = cc3v(_constantColor.r, _constantColor.b, _constantColor.g);
 			break;
 		case kCC3DOT3RGB_YXZ:
-			hv = cc3v(constantColor.g, constantColor.r, constantColor.b);
+			hv = cc3v(_constantColor.g, _constantColor.r, _constantColor.b);
 			break;
 		case kCC3DOT3RGB_YZX:
-			hv = cc3v(constantColor.b, constantColor.r, constantColor.g);
+			hv = cc3v(_constantColor.b, _constantColor.r, _constantColor.g);
 			break;
 		case kCC3DOT3RGB_ZXY:
-			hv = cc3v(constantColor.g, constantColor.b, constantColor.r);
+			hv = cc3v(_constantColor.g, _constantColor.b, _constantColor.r);
 			break;
 		case kCC3DOT3RGB_ZYX:
-			hv = cc3v(constantColor.b, constantColor.g, constantColor.r);
+			hv = cc3v(_constantColor.b, _constantColor.g, _constantColor.r);
 			break;
 		case kCC3DOT3RGB_XYZ:
 		default:
-			hv = cc3v(constantColor.r, constantColor.g, constantColor.b);
+			hv = cc3v(_constantColor.r, _constantColor.g, _constantColor.b);
 			break;
 	}
 	// Convert half-scaled vector between 0.0 and 1.0 to range +/- 1.0.
@@ -78,24 +75,24 @@
 	CC3Vector hv = CC3VectorAverage(aDirection, kCC3VectorUnitCube);
 	
 	// Set constantColor from normal direction, according to RGB <-> normal mapping
-	switch (rgbNormalMap) {
+	switch (_rgbNormalMap) {
 		case kCC3DOT3RGB_XYZ:
-			constantColor = CCC4FMake(hv.x, hv.y, hv.z, 1.0f);
+			_constantColor = ccc4f(hv.x, hv.y, hv.z, 1.0f);
 			break;
 		case kCC3DOT3RGB_XZY:
-			constantColor = CCC4FMake(hv.x, hv.z, hv.y, 1.0f);
+			_constantColor = ccc4f(hv.x, hv.z, hv.y, 1.0f);
 			break;
 		case kCC3DOT3RGB_YXZ:
-			constantColor = CCC4FMake(hv.y, hv.x, hv.z, 1.0f);
+			_constantColor = ccc4f(hv.y, hv.x, hv.z, 1.0f);
 			break;
 		case kCC3DOT3RGB_YZX:
-			constantColor = CCC4FMake(hv.y, hv.z, hv.x, 1.0f);
+			_constantColor = ccc4f(hv.y, hv.z, hv.x, 1.0f);
 			break;
 		case kCC3DOT3RGB_ZXY:
-			constantColor = CCC4FMake(hv.z, hv.x, hv.y, 1.0f);
+			_constantColor = ccc4f(hv.z, hv.x, hv.y, 1.0f);
 			break;
 		case kCC3DOT3RGB_ZYX:
-			constantColor = CCC4FMake(hv.z, hv.y, hv.x, 1.0f);
+			_constantColor = ccc4f(hv.z, hv.y, hv.x, 1.0f);
 			break;
 	}
 }
@@ -106,41 +103,57 @@
 #pragma mark CCRGBAProtocol support
 
 -(ccColor3B) color {
-	return ccc3(CCColorByteFromFloat(constantColor.r),
-				CCColorByteFromFloat(constantColor.g),
-				CCColorByteFromFloat(constantColor.b));
+	return ccc3(CCColorByteFromFloat(_constantColor.r),
+				CCColorByteFromFloat(_constantColor.g),
+				CCColorByteFromFloat(_constantColor.b));
 }
 
 -(void) setColor: (ccColor3B) aColor {
-	constantColor.r = CCColorFloatFromByte(aColor.r);
-	constantColor.g = CCColorFloatFromByte(aColor.g);
-	constantColor.b = CCColorFloatFromByte(aColor.b);
+	_constantColor.r = CCColorFloatFromByte(aColor.r);
+	_constantColor.g = CCColorFloatFromByte(aColor.g);
+	_constantColor.b = CCColorFloatFromByte(aColor.b);
 }
 
--(GLubyte) opacity { return CCColorByteFromFloat(constantColor.a); }
+-(GLubyte) opacity { return CCColorByteFromFloat(_constantColor.a); }
 
--(void) setOpacity: (GLubyte) opacity { constantColor.a = CCColorFloatFromByte(opacity); }
+-(void) setOpacity: (GLubyte) opacity { _constantColor.a = CCColorFloatFromByte(opacity); }
+
+-(ccColor3B) displayedColor { return self.color; }
+
+-(BOOL) isCascadeColorEnabled { return NO; }
+
+-(void) setCascadeColorEnabled:(BOOL)cascadeColorEnabled {}
+
+-(void) updateDisplayedColor: (ccColor3B) color {}
+
+-(GLubyte) displayedOpacity { return self.opacity; }
+
+-(BOOL) isCascadeOpacityEnabled { return NO; }
+
+-(void) setCascadeOpacityEnabled: (BOOL) cascadeOpacityEnabled {}
+
+-(void) updateDisplayedOpacity: (GLubyte) opacity {}
 
 
 #pragma mark Allocation and Initialization
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		textureEnvironmentMode = GL_MODULATE;
-		constantColor = kCCC4FBlackTransparent;
-		rgbNormalMap = kCC3DOT3RGB_XYZ;
+		_textureEnvironmentMode = GL_MODULATE;
+		_constantColor = kCCC4FBlackTransparent;
+		_rgbNormalMap = kCC3DOT3RGB_XYZ;
 	}
 	return self;
 }
 
-+(id) textureUnit { return [[[self alloc] init] autorelease]; }
++(id) textureUnit { return [[self alloc] init]; }
 
 // Template method that populates this instance from the specified other instance.
 // This method is invoked automatically during object copying via the copyWithZone: method.
 -(void) populateFrom: (CC3TextureUnit*) another {
-	textureEnvironmentMode = another.textureEnvironmentMode;
-	constantColor = another.constantColor;
-	rgbNormalMap = another.rgbNormalMap;
+	_textureEnvironmentMode = another.textureEnvironmentMode;
+	_constantColor = another.constantColor;
+	_rgbNormalMap = another.rgbNormalMap;
 }
 
 -(id) copyWithZone: (NSZone*) zone {
@@ -152,14 +165,18 @@
 
 #pragma mark Drawing
 
--(void) bindTo: (CC3OpenGLES11TextureUnit*) gles11TexUnit withVisitor: (CC3NodeDrawingVisitor*) visitor {
-	gles11TexUnit.textureEnvironmentMode.value = textureEnvironmentMode;
-	gles11TexUnit.color.value = constantColor;
+-(void) bindWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	CC3OpenGL* gl = visitor.gl;
+	GLuint tuIdx = visitor.current2DTextureUnit;
+	[gl setTextureEnvMode: _textureEnvironmentMode at: tuIdx];
+	[gl setTextureEnvColor: _constantColor at: tuIdx];
 }
 
-+(void) bindDefaultTo: (CC3OpenGLES11TextureUnit*) gles11TexUnit {
-	gles11TexUnit.textureEnvironmentMode.value = GL_MODULATE;
-	gles11TexUnit.color.value = kCCC4FBlackTransparent;
++(void) bindDefaultWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	CC3OpenGL* gl = visitor.gl;
+	GLuint tuIdx = visitor.current2DTextureUnit;
+	[gl setTextureEnvMode: GL_MODULATE at: tuIdx];
+	[gl setTextureEnvColor: kCCC4FBlackTransparent at: tuIdx];
 }
 
 @end
@@ -170,24 +187,24 @@
 
 @implementation CC3ConfigurableTextureUnit
 
-@synthesize combineRGBFunction;
-@synthesize rgbSource0;
-@synthesize rgbSource1;
-@synthesize rgbSource2;
-@synthesize rgbOperand0;
-@synthesize rgbOperand1;
-@synthesize rgbOperand2;
-@synthesize combineAlphaFunction;
-@synthesize alphaSource0;
-@synthesize alphaSource1;
-@synthesize alphaSource2;
-@synthesize alphaOperand0;
-@synthesize alphaOperand1;
-@synthesize alphaOperand2;
+@synthesize combineRGBFunction=_combineRGBFunction;
+@synthesize rgbSource0=_rgbSource0;
+@synthesize rgbSource1=_rgbSource1;
+@synthesize rgbSource2=_rgbSource2;
+@synthesize rgbOperand0=_rgbOperand0;
+@synthesize rgbOperand1=_rgbOperand1;
+@synthesize rgbOperand2=_rgbOperand2;
+@synthesize combineAlphaFunction=_combineAlphaFunction;
+@synthesize alphaSource0=_alphaSource0;
+@synthesize alphaSource1=_alphaSource1;
+@synthesize alphaSource2=_alphaSource2;
+@synthesize alphaOperand0=_alphaOperand0;
+@synthesize alphaOperand1=_alphaOperand1;
+@synthesize alphaOperand2=_alphaOperand2;
 
 -(BOOL) isBumpMap {
 	return self.textureEnvironmentMode == GL_COMBINE &&
-			(combineRGBFunction == GL_DOT3_RGB || combineRGBFunction == GL_DOT3_RGBA);
+			(_combineRGBFunction == GL_DOT3_RGB || _combineRGBFunction == GL_DOT3_RGBA);
 }
 
 // Keep the compiler happy because the property is re-declared in this subclass
@@ -200,20 +217,20 @@
 -(id) init {
 	if ( (self = [super init]) ) {
 		self.textureEnvironmentMode = GL_COMBINE;
-		combineRGBFunction = GL_MODULATE;
-		rgbSource0 = GL_TEXTURE;
-		rgbSource1 = GL_PREVIOUS;
-		rgbSource2 = GL_CONSTANT;
-		rgbOperand0 = GL_SRC_COLOR;
-		rgbOperand1 = GL_SRC_COLOR;
-		rgbOperand2 = GL_SRC_ALPHA;
-		combineAlphaFunction = GL_MODULATE;
-		alphaSource0 = GL_TEXTURE;
-		alphaSource1 = GL_PREVIOUS;
-		alphaSource2 = GL_CONSTANT;
-		alphaOperand0 = GL_SRC_ALPHA;
-		alphaOperand1 = GL_SRC_ALPHA;
-		alphaOperand2 = GL_SRC_ALPHA;
+		_combineRGBFunction = GL_MODULATE;
+		_rgbSource0 = GL_TEXTURE;
+		_rgbSource1 = GL_PREVIOUS;
+		_rgbSource2 = GL_CONSTANT;
+		_rgbOperand0 = GL_SRC_COLOR;
+		_rgbOperand1 = GL_SRC_COLOR;
+		_rgbOperand2 = GL_SRC_ALPHA;
+		_combineAlphaFunction = GL_MODULATE;
+		_alphaSource0 = GL_TEXTURE;
+		_alphaSource1 = GL_PREVIOUS;
+		_alphaSource2 = GL_CONSTANT;
+		_alphaOperand0 = GL_SRC_ALPHA;
+		_alphaOperand1 = GL_SRC_ALPHA;
+		_alphaOperand2 = GL_SRC_ALPHA;
 	}
 	return self;
 }
@@ -223,44 +240,47 @@
 -(void) populateFrom: (CC3ConfigurableTextureUnit*) another {
 	[super populateFrom: another];
 	
-	combineRGBFunction = another.combineRGBFunction;
-	rgbSource0 = another.rgbSource0;
-	rgbSource1 = another.rgbSource1;
-	rgbSource2 = another.rgbSource2;
-	rgbOperand0 = another.rgbOperand0;
-	rgbOperand1 = another.rgbOperand1;
-	rgbOperand2 = another.rgbOperand2;
-	combineAlphaFunction = another.combineAlphaFunction;
-	alphaSource0 = another.alphaSource0;
-	alphaSource1 = another.alphaSource1;
-	alphaSource2 = another.alphaSource2;
-	alphaOperand0 = another.alphaOperand0;
-	alphaOperand1 = another.alphaOperand1;
-	alphaOperand2 = another.alphaOperand2;
+	_combineRGBFunction = another.combineRGBFunction;
+	_rgbSource0 = another.rgbSource0;
+	_rgbSource1 = another.rgbSource1;
+	_rgbSource2 = another.rgbSource2;
+	_rgbOperand0 = another.rgbOperand0;
+	_rgbOperand1 = another.rgbOperand1;
+	_rgbOperand2 = another.rgbOperand2;
+	_combineAlphaFunction = another.combineAlphaFunction;
+	_alphaSource0 = another.alphaSource0;
+	_alphaSource1 = another.alphaSource1;
+	_alphaSource2 = another.alphaSource2;
+	_alphaOperand0 = another.alphaOperand0;
+	_alphaOperand1 = another.alphaOperand1;
+	_alphaOperand2 = another.alphaOperand2;
 }
 
 #pragma mark Drawing
 
--(void) bindTo: (CC3OpenGLES11TextureUnit*) gles11TexUnit withVisitor: (CC3NodeDrawingVisitor*) visitor {
-	[super bindTo: gles11TexUnit withVisitor: visitor];
+#if !CC3_GLSL
+-(void) bindWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	[super bindWithVisitor: visitor];
+
+	glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, _combineRGBFunction);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_RGB, _rgbSource0);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC1_RGB, _rgbSource1);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC2_RGB, _rgbSource2);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_RGB, _rgbOperand0);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_RGB, _rgbOperand1);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND2_RGB, _rgbOperand2);
 	
-	gles11TexUnit.combineRGBFunction.value = combineRGBFunction;
-	gles11TexUnit.rgbSource0.value = rgbSource0;
-	gles11TexUnit.rgbSource1.value = rgbSource1;
-	gles11TexUnit.rgbSource2.value = rgbSource2;
-	gles11TexUnit.rgbOperand0.value = rgbOperand0;
-	gles11TexUnit.rgbOperand1.value = rgbOperand1;
-	gles11TexUnit.rgbOperand2.value = rgbOperand2;
-	gles11TexUnit.combineAlphaFunction.value = combineAlphaFunction;
-	gles11TexUnit.alphaSource0.value = alphaSource0;
-	gles11TexUnit.alphaSource1.value = alphaSource1;
-	gles11TexUnit.alphaSource2.value = alphaSource2;
-	gles11TexUnit.alphaOperand0.value = alphaOperand0;
-	gles11TexUnit.alphaOperand1.value = alphaOperand1;
-	gles11TexUnit.alphaOperand2.value = alphaOperand2;
+	glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_ALPHA, _combineAlphaFunction);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_ALPHA, _alphaSource0);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC1_ALPHA, _alphaSource1);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC2_ALPHA, _alphaSource2);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_ALPHA, _alphaOperand0);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_ALPHA, _alphaOperand1);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND2_ALPHA, _alphaOperand2);
 	
-	LogTrace(@"%@ bound to %@", self, gles11TexUnit);
+	LogTrace(@"%@ bound to texture unit %u", self, tuIdx);
 }
+#endif	// !CC3_GLSL
 
 @end
 
@@ -273,23 +293,38 @@
 -(BOOL) isBumpMap { return YES; }
 
 
-#pragma mark Drawing
+#pragma mark Allocation and Initialization
 
--(void) bindTo: (CC3OpenGLES11TextureUnit*) gles11TexUnit withVisitor: (CC3NodeDrawingVisitor*) visitor {
-	gles11TexUnit.textureEnvironmentMode.value = GL_COMBINE;
-	gles11TexUnit.combineRGBFunction.value = GL_DOT3_RGB;
-	gles11TexUnit.rgbSource0.value = GL_TEXTURE;
-	gles11TexUnit.rgbSource1.value = GL_CONSTANT;
-	gles11TexUnit.rgbOperand0.value = GL_SRC_COLOR;
-	gles11TexUnit.rgbOperand1.value = GL_SRC_COLOR;
-	gles11TexUnit.combineAlphaFunction.value = GL_MODULATE;
-	gles11TexUnit.alphaSource0.value = GL_TEXTURE;
-	gles11TexUnit.alphaSource1.value = GL_CONSTANT;
-	gles11TexUnit.alphaOperand0.value = GL_SRC_ALPHA;
-	gles11TexUnit.alphaOperand1.value = GL_SRC_ALPHA;
-	gles11TexUnit.color.value = constantColor;
-	
-	LogTrace(@"%@ bound to %@", self, gles11TexUnit);
+-(id) init {
+	if ( (self = [super init]) ) {
+		_textureEnvironmentMode = GL_COMBINE;
+	}
+	return self;
 }
 
+
+#pragma mark Drawing
+
+#if !CC3_GLSL
+-(void) bindWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	[super bindWithVisitor: visitor];
+	
+	glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_DOT3_RGB);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_RGB, GL_TEXTURE);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC1_RGB, GL_CONSTANT);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_RGB, GL_SRC_COLOR);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_RGB, GL_SRC_COLOR);
+	
+	glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_ALPHA, GL_MODULATE);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_ALPHA, GL_TEXTURE);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC1_ALPHA, GL_CONSTANT);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_ALPHA, GL_SRC_ALPHA);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_ALPHA, GL_SRC_ALPHA);
+	
+	LogTrace(@"%@ bound to texture unit %u", self, tuIdx);
+}
+#endif	// !CC3_GLSL
+
 @end
+
+

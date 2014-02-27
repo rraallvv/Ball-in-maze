@@ -1,9 +1,9 @@
 /*
  * CC3BoundingVolumes.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -31,9 +31,9 @@
 
 #import "CC3BoundingVolumes.h"
 #import "CC3Camera.h"
-#import "CC3ParametricMeshNodes.h"
+#import "CC3UtilityMeshNodes.h"
 #import "CC3Light.h"
-#import "CC3IOSExtensions.h"
+#import "CC3OSExtensions.h"
 
 
 /**
@@ -56,24 +56,9 @@
 #pragma mark -
 #pragma mark CC3BoundingVolume
 
-@interface CC3BoundingVolume (TemplateMethods)
--(void) updateIfNeeded;
--(void) buildVolume;
--(void) buildPlanes;
--(BOOL) areAllVerticesInFrontOfOneOf: (GLuint) numPlanes planes: (CC3Plane*) planes;
--(BOOL) areAllVerticesInFrontOf: (CC3Plane) plane;
--(BOOL) isRay: (CC3Ray) aRay behindAllOtherPlanesAtPunctureOfPlaneAt: (GLuint) planeIndex;
--(CC3Plane) buildPlaneFromNormal: (CC3Vector) normal
-						 andFace: (CC3Face) face
-			  andOrientationAxis: (CC3Vector) orientationAxis;
--(void) appendPlanesTo: (NSMutableString*) desc;
--(void) appendVerticesTo: (NSMutableString*) desc;
--(void) logIntersection: (BOOL) intersects with: (CC3BoundingVolume*) aBoundingVolume;
-@end
-
 @implementation CC3BoundingVolume
 
-@synthesize shouldIgnoreRayIntersection;
+@synthesize shouldIgnoreRayIntersection=_shouldIgnoreRayIntersection;
 
 -(CC3Plane*) planes { return NULL; }
 
@@ -91,47 +76,37 @@
 
 		GLuint pCnt = self.planeCount;
 		CC3Plane* pArray = self.planes;
-		for (int i = 0; i < pCnt; i++) {
-			pArray[i] = kCC3PlaneZero;
-		}
+		for (int i = 0; i < pCnt; i++) pArray[i] = kCC3PlaneZero;
 
 		GLuint vCnt = self.vertexCount;
 		CC3Vector* vArray = self.vertices;
-		for (int i = 0; i < vCnt; i++) {
-			vArray[i] = kCC3VectorZero;
-		}
+		for (int i = 0; i < vCnt; i++) vArray[i] = kCC3VectorZero;
 
-		isDirty = YES;
-		shouldIgnoreRayIntersection = NO;
+		_isDirty = YES;
+		_shouldIgnoreRayIntersection = NO;
 		self.shouldLogIntersections = NO;			// Use setter
 		self.shouldLogIntersectionMisses = NO;		// Use setter
 	}
 	return self;
 }
 
-+(id) boundingVolume { return [[[self alloc] init] autorelease]; }
++(id) boundingVolume { return [[self alloc] init]; }
 
-// Template method that populates this instance from the specified other instance.
-// This method is invoked automatically during object copying via the copyWithZone: method.
 -(void) populateFrom: (CC3BoundingVolume*) another {
-	isDirty = another.isDirty;
-	shouldIgnoreRayIntersection = another.shouldIgnoreRayIntersection;
+	_isDirty = another.isDirty;
+	_shouldIgnoreRayIntersection = another.shouldIgnoreRayIntersection;
 	self.shouldLogIntersections = another.shouldLogIntersections;			// Use setter
 	self.shouldLogIntersectionMisses = another.shouldLogIntersectionMisses;	// Use setter
 
 	GLuint pCnt = self.planeCount;
 	CC3Plane* pArray = self.planes;
 	CC3Plane* otherPlanes = another.planes;
-	for (int i = 0; i < pCnt; i++) {
-		pArray[i] = otherPlanes[i];
-	}
+	for (int i = 0; i < pCnt; i++) pArray[i] = otherPlanes[i];
 	
 	GLuint vCnt = self.vertexCount;
 	CC3Vector* vArray = self.vertices;
 	CC3Vector* otherVertices = another.vertices;
-	for (int i = 0; i < vCnt; i++) {
-		vArray[i] = otherVertices[i];
-	}
+	for (int i = 0; i < vCnt; i++) vArray[i] = otherVertices[i];
 }
 
 -(id) copyWithZone: (NSZone*) zone {
@@ -140,9 +115,7 @@
 	return aCopy;
 }
 
--(NSString*) description {
-	return [NSString stringWithFormat: @"%@", self.class];
-}
+-(NSString*) description { return [NSString stringWithFormat: @"%@", self.class]; }
 
 -(NSString*) fullDescription {
 	NSMutableString* desc = [NSMutableString stringWithCapacity: 200];
@@ -155,31 +128,29 @@
 -(void) appendPlanesTo: (NSMutableString*) desc {
 	GLuint pCnt = self.planeCount;
 	CC3Plane* pArray = self.planes;
-	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++) {
+	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++)
 		[desc appendFormat: @"\n\tplane: %@", NSStringFromCC3Plane(pArray[pIdx])];
-	}
 }
 
 -(void) appendVerticesTo: (NSMutableString*) desc {
 	GLuint vCnt = self.vertexCount;
 	CC3Vector* vArray = self.vertices;
-	for (GLuint vIdx = 0; vIdx < vCnt; vIdx++) {
+	for (GLuint vIdx = 0; vIdx < vCnt; vIdx++)
 		[desc appendFormat: @"\n\tvertex: %@", NSStringFromCC3Vector(vArray[vIdx])];
-	}
 }
 
 
 #pragma mark Updating
 
--(BOOL) isDirty { return isDirty; }
+-(BOOL) isDirty { return _isDirty; }
 
--(void) markDirty { isDirty = YES; }
+-(void) markDirty { _isDirty = YES; }
 
 -(void) updateIfNeeded {
-	if (isDirty) {
+	if (_isDirty) {
 		[self buildVolume];
 		[self buildPlanes];
-		isDirty = NO;
+		_isDirty = NO;
 	}
 }
 
@@ -210,7 +181,7 @@
  * using the planes of this bounding volume.
  */
 -(BOOL) doesIntersect: (CC3BoundingVolume*) aBoundingVolume {
-	NSAssert1(self.planes, @"%@ does not use planes. You must add planes or override method doesIntersect:", self);
+	CC3Assert(self.planes, @"%@ does not use planes. You must add planes or override method doesIntersect:", self);
 	BOOL intersects = [aBoundingVolume doesIntersectConvexHullOf: self.planeCount
 														  planes: self.planes
 															from: self];
@@ -219,7 +190,7 @@
 }
 
 -(BOOL) doesIntersectLocation: (CC3Vector) aLocation {
-	NSAssert1(self.planes, @"%@ does not use planes. You must add planes or override method doesIntersectLocation:", self);
+	CC3Assert(self.planes, @"%@ does not use planes. You must add planes or override method doesIntersectLocation:", self);
 	GLuint pCnt = self.planeCount;
 	CC3Plane* pArray = self.planes;
 	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++) {
@@ -236,11 +207,11 @@
 -(BOOL) isRay: (CC3Ray) aRay behindAllOtherPlanesAtPunctureOfPlaneAt: (GLuint) planeIndex {
 	CC3Plane* pArray = self.planes;
 	CC3Vector4 pLoc4 = CC3RayIntersectionWithPlane(aRay, pArray[planeIndex]);
-	CC3Vector punctureLoc = CC3VectorFromTruncatedCC3Vector4(pLoc4);
-	
-	// Ray is parallel to plane and won't puncture it.
-	if (CC3VectorIsNull(punctureLoc)) return NO;
 
+	// If ray is pointed away from, or is parallel to the plane, it won't puncture it.
+	if (pLoc4.w < 0.0f || CC3Vector4IsNull(pLoc4)) return NO;
+
+	CC3Vector punctureLoc = pLoc4.v;
 	GLuint pCnt = self.planeCount;
 	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++) {
 		if ( (pIdx != planeIndex) &&
@@ -254,8 +225,8 @@
  * is behind all of the other planes, then the ray intersects this bounding volume.
  */
 -(BOOL) doesIntersectRay: (CC3Ray) aRay {
-	NSAssert1(self.planes, @"%@ does not use planes. You must add planes or override method doesIntersectRay:", self);
-	if (shouldIgnoreRayIntersection) return NO;
+	if (_shouldIgnoreRayIntersection) return NO;
+	CC3Assert(self.planes, @"%@ does not use planes. You must add planes or override method doesIntersectRay:", self);
 	GLuint pCnt = self.planeCount;
 	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++) {
 		if ( [self isRay: aRay behindAllOtherPlanesAtPunctureOfPlaneAt: pIdx] ) {
@@ -276,7 +247,7 @@
 
 -(BOOL) doesIntersectSphere: (CC3Sphere) aSphere
 					   from: (CC3BoundingVolume*) otherBoundingVolume {
-	NSAssert1(self.planes, @"%@ does not use planes. You must add planes or override method doesIntersectSphere:from:", self);
+	CC3Assert(self.planes, @"%@ does not use planes. You must add planes or override method doesIntersectSphere:from:", self);
 	GLuint pCnt = self.planeCount;
 	CC3Plane* pArray = self.planes;
 	for (GLuint pIdx = 0; pIdx < pCnt; pIdx++) {
@@ -414,43 +385,27 @@
 }
 
 -(CC3Vector) globalLocationOfGlobalRayIntesection: (CC3Ray) aRay {
-	NSAssert1(NO, @"%@ does not yet implement globalLocationOfGlobalRayIntesection:. An implementation needs to be added.", [self class]);
+	CC3Assert(NO, @"%@ does not yet implement globalLocationOfGlobalRayIntesection:. An implementation needs to be added.", [self class]);
 	return kCC3VectorNull;
 }
 
 
 #pragma mark Intersection logging
 
-#if LOGGING_ENABLED
+-(BOOL) shouldLogIntersections { return _shouldLogIntersections; }
 
--(BOOL) shouldLogIntersections { return shouldLogIntersections; }
+-(void) setShouldLogIntersections: (BOOL) shouldLog { _shouldLogIntersections = shouldLog; }
 
--(void) setShouldLogIntersections: (BOOL) shouldLog { shouldLogIntersections = shouldLog; }
+-(BOOL) shouldLogIntersectionMisses { return _shouldLogIntersectionMisses; }
 
--(BOOL) shouldLogIntersectionMisses { return shouldLogIntersectionMisses; }
-
--(void) setShouldLogIntersectionMisses: (BOOL) shouldLog { shouldLogIntersectionMisses = shouldLog; }
-
-#else
-
--(BOOL) shouldLogIntersections { return NO; }
-
--(void) setShouldLogIntersections: (BOOL) shouldLog {}
-
--(BOOL) shouldLogIntersectionMisses { return NO; }
-
--(void) setShouldLogIntersectionMisses: (BOOL) shouldLog {}
-
-#endif
+-(void) setShouldLogIntersectionMisses: (BOOL) shouldLog { _shouldLogIntersectionMisses = shouldLog; }
 
 /**
  * If the shouldLogIntersections or shouldLogIntersectionMisses property is set to YES
  * in both this bounding volume and the specified bounding volume, a message is logged.
  *
- * Since this method is conditionally compiled, you should not invoke this method
- * directly from code that is not likewise conditionally compiled. Instead, you
- * can use the CC3LogBVIntersection macro function to invoke this method from
- * unconditionally compiled code.
+ * You can use the CC3LogBVIntersection macro function to invoke this method in a way that
+ * will be removed from the code when logging is disabled.
  */
 -(void) logIntersection: (BOOL) intersects with: (CC3BoundingVolume*) aBoundingVolume {
 	if (intersects && self.shouldLogIntersections && aBoundingVolume.shouldLogIntersections) {
@@ -467,54 +422,70 @@
 #pragma mark -
 #pragma mark CC3NodeBoundingVolume implementation
 
-@interface CC3NodeBoundingVolume (TemplateMethods)
--(void) transformVolume;
--(CC3BoundingVolumeDisplayNode*) displayNode;
--(void) updateDisplayNode;
-@end
-
-
 @implementation CC3NodeBoundingVolume
 
-@synthesize node, shouldMaximize, cameraDistanceProduct;
+@synthesize shouldMaximize=_shouldMaximize;
 
--(void) dealloc {
-	node = nil;			// not retained
-	[super dealloc];
+-(CC3Node*) node { return _node; }
+
+-(void) setNode: (CC3Node*) node {
+	CC3Assert( !_node || !node, @"%@ may have only one primary node. If you want to change the"
+			  @" primary node, first set this property to nil, then set the new node.", self);
+	_node = node;
+
+	// Update whether the BV should be built from the mesh
+	self.shouldBuildFromMesh = self.shouldBuildFromMesh;
+}
+
+-(BOOL) shouldBuildFromMesh { return _shouldBuildFromMesh; }
+
+-(void) setShouldBuildFromMesh: (BOOL) shouldBuildFromMesh {
+	_shouldBuildFromMesh = shouldBuildFromMesh && ( (_node == nil) || [_node isKindOfClass: [CC3MeshNode class]]);
+	if (_shouldBuildFromMesh) [self markDirty];
 }
 
 -(CC3Vector*) vertices {
 	[self updateIfNeeded];
-	return &globalCenterOfGeometry;
+	return &_globalCenterOfGeometry;
 }
 
 -(GLuint) vertexCount { return 1; }
 
 -(CC3Vector) centerOfGeometry {
 	[self updateIfNeeded];
-	return centerOfGeometry;
+	return _centerOfGeometry;
 }
 
 -(CC3Vector) globalCenterOfGeometry {
 	[self updateIfNeeded];
-	return globalCenterOfGeometry;
+	return _globalCenterOfGeometry;
 }
 
 -(void) setCenterOfGeometry: (CC3Vector) aLocation {
-	centerOfGeometry = aLocation;
-	isDirty = NO;
+	_centerOfGeometry = aLocation;
+	_isDirty = NO;
+	_shouldBuildFromMesh = NO;
 	[self markTransformDirty];
+}
+
+/**
+ * Returns the vertex locations of the CC3MeshNode holding this bounding volume.
+ * If the node is not a CC3MeshNode, an assertion error is raised.
+ */
+-(CC3VertexLocations*) vertexLocations {
+	CC3Assert([_node isKindOfClass: [CC3MeshNode class]], @"%@ can only be assigned to a CC3MeshNode instance.", self.class);
+	return ((CC3MeshNode*)_node).mesh.vertexLocations;
 }
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		node = nil;
-		centerOfGeometry = kCC3VectorZero;
-		globalCenterOfGeometry = kCC3VectorZero;
-		cameraDistanceProduct = 0.0f;
-		shouldMaximize = NO;
-		isTransformDirty = YES;
-		shouldDraw = NO;
+		_node = nil;
+		_shouldBuildFromMesh = YES;		// Assume YES. Will be set to no if not assigned to mesh node
+		_centerOfGeometry = kCC3VectorZero;
+		_globalCenterOfGeometry = kCC3VectorZero;
+		_shouldMaximize = NO;
+		_isTransformDirty = YES;
+		_shouldDraw = NO;
 	}
 	return self;
 }
@@ -527,48 +498,50 @@
 	// Node property is not copied and must be set externally,
 	// because a node can only have one bounding volume.
 
-	centerOfGeometry = another.centerOfGeometry;
-	globalCenterOfGeometry = another.globalCenterOfGeometry;
-	cameraDistanceProduct = another.cameraDistanceProduct;
-	shouldMaximize = another.shouldMaximize;
-	isTransformDirty = another.isTransformDirty;
-	shouldDraw = another.shouldDraw;
+	_shouldBuildFromMesh = another.shouldBuildFromMesh;
+	_centerOfGeometry = another.centerOfGeometry;
+	_globalCenterOfGeometry = another.globalCenterOfGeometry;
+	_shouldMaximize = another.shouldMaximize;
+	_isTransformDirty = another.isTransformDirty;
+	_shouldDraw = another.shouldDraw;
 }
 
 -(NSString*) description {
-	return [NSString stringWithFormat: @"%@ for %@", [super description], node];
+	return [NSString stringWithFormat: @"%@ for %@", [super description], _node];
 }
 
 -(NSString*) fullDescription {
 	return [NSString stringWithFormat: @"%@ for %@ centered at: %@ (globally: %@)",
-			[super fullDescription], node, NSStringFromCC3Vector(self.centerOfGeometry),
+			[super fullDescription], _node, NSStringFromCC3Vector(self.centerOfGeometry),
 			NSStringFromCC3Vector(self.globalCenterOfGeometry) ];
 }
 
 
 #pragma mark Updating
 
--(BOOL) isTransformDirty { return isTransformDirty; }
+-(void) scaleBy: (GLfloat) scale { _shouldBuildFromMesh = NO; }
 
--(void) markTransformDirty { isTransformDirty = YES; }
+-(BOOL) isTransformDirty { return _isTransformDirty; }
+
+-(void) markTransformDirty { _isTransformDirty = YES; }
 
 /**
- * Builds the volume if needed, then transforms it with the node's transformMatrix.
+ * Builds the volume if needed, then transforms it with the node's globalTransformMatrix.
  * The transformation will occur if either the transform is marked as dirty, or the
  * bounding volume is being rebuilt.
  */
 -(void) updateIfNeeded {
-	if (isDirty) {
+	if (_isDirty) {
 		[self buildVolume];
-		isDirty = NO;
+		_isDirty = NO;
 		[self updateDisplayNode];
 		[self markTransformDirty];
 	}
 
-	if ( node && isTransformDirty ) {
+	if (_node && _isTransformDirty) {
 		[self transformVolume];
 		[self buildPlanes];
-		isTransformDirty = NO;
+		_isTransformDirty = NO;
 	}
 }
 
@@ -582,33 +555,31 @@
  * so that the global center of geometry will always be calculated.
  */
 -(void) transformVolume {
-	globalCenterOfGeometry = CC3VectorsAreEqual(centerOfGeometry, kCC3VectorZero)
-								? node.globalLocation
-								: [node.transformMatrix transformLocation: centerOfGeometry];
+	_globalCenterOfGeometry = CC3VectorsAreEqual(_centerOfGeometry, kCC3VectorZero)
+								? _node.globalLocation
+								: [_node.globalTransformMatrix transformLocation: _centerOfGeometry];
 }
 
 
 #pragma mark Intersection testing
 
 -(CC3Vector) locationOfRayIntesection: (CC3Ray) localRay {
-	NSAssert1(NO, @"%@ does not yet implement locationOfRayIntesection:. An implementation needs to be added.", [self class]);
+	CC3Assert(NO, @"%@ does not yet implement locationOfRayIntesection:. An implementation needs to be added.", [self class]);
 	return kCC3VectorNull;
 }
 
 -(CC3Vector) globalLocationOfGlobalRayIntesection: (CC3Ray) aRay {
-	if ( !node || shouldIgnoreRayIntersection ) return kCC3VectorNull;
+	if ( !_node || _shouldIgnoreRayIntersection ) return kCC3VectorNull;
 
-	CC3Ray localRay = [node.transformMatrixInverted transformRay: aRay];
+	CC3Ray localRay = [_node.globalTransformMatrixInverted transformRay: aRay];
 	CC3Vector puncture = [self locationOfRayIntesection: localRay];
 	return CC3VectorIsNull(puncture)
 				? puncture
-				: [node.transformMatrix transformLocation: puncture];
+				: [_node.globalTransformMatrix transformLocation: puncture];
 }
 
 // Deprecated and replaced by doesIntersect:
--(BOOL) doesIntersectFrustum: (CC3Frustum*) aFrustum {
-	return [self doesIntersect: aFrustum];
-}
+-(BOOL) doesIntersectFrustum: (CC3Frustum*) aFrustum { return [self doesIntersect: aFrustum]; }
 
 
 #pragma mark Drawing bounding volume
@@ -618,13 +589,13 @@
  * this bounding volume. Different bounding volume types will use different suffixes.
  */
 -(NSString*) displayNodeNameSuffix {
-	NSAssert1(NO, @"%@ has no unique display node suffix. You must override method displayNodeNameSuffix:", self);
+	CC3Assert(NO, @"%@ has no unique display node suffix. You must override method displayNodeNameSuffix:", self);
 	return @"BV";
 }
 
 /** The name to use when creating or retrieving the wireframe child node of this node. */
 -(NSString*) displayNodeName {
-	return [NSString stringWithFormat: @"%@-%@", self.node.name, self.displayNodeNameSuffix];
+	return [NSString stringWithFormat: @"%@-%@", _node.name, self.displayNodeNameSuffix];
 }
 
 /**
@@ -633,7 +604,7 @@
  * is not currently being displayed.
  */
 -(CC3BoundingVolumeDisplayNode*) displayNode {
-	return (CC3BoundingVolumeDisplayNode*)[self.node getNodeNamed: [self displayNodeName]];
+	return (CC3BoundingVolumeDisplayNode*)[_node getNodeNamed: [self displayNodeName]];
 }
 
 /** The color used to display the bounding volume. */
@@ -654,38 +625,37 @@
  * This default implementation repopulates the mesh node from scratch, which
  * may be expensive. Subclasses may override to something more efficient.
  */
--(void) updateDisplayNode {
-	if (shouldDraw) [self populateDisplayNode];
-}
+-(void) updateDisplayNode { if (_shouldDraw) [self populateDisplayNode]; }
 
--(BOOL) shouldDraw { return shouldDraw; }
+-(BOOL) shouldDraw { return _shouldDraw; }
 
 -(void) setShouldDraw: (BOOL) shdDraw {
-	shouldDraw = shdDraw;
+	_shouldDraw = shdDraw;
 	
 	// Fetch the display node.
 	CC3BoundingVolumeDisplayNode* dn = self.displayNode;
 	
 	// If the display node exists, but should not, remove it
-	if (dn && !shouldDraw) {
-		[dn remove];
-	}
+	if (dn && !_shouldDraw) [dn remove];
 	
 	// If there is no display node, but there should be, add it by creating a
 	// CC3BoundingVolumeDisplayNode of the correct shape from the properties of
 	// this bounding volume, and add it as a child of this bounding volume's node.
-	if(!dn && shouldDraw) {
+	if(!dn && _shouldDraw) {
 		dn = [CC3BoundingVolumeDisplayNode nodeWithName: [self displayNodeName]];
 		dn.material = [CC3Material shiny];
 		dn.color = self.displayNodeColor;
 		dn.opacity = self.displayNodeOpacity;
 
-		dn.decalOffsetFactor = -2.0f;		// Move towards the camera to avoid...
-		dn.decalOffsetUnits = 0.0f;			// ...Z-fighting with object node itself
+		// Set drawing order and decal properties to minimize Z-fighting between the
+		// bounding volume display and the node which the bounding volume surrounds.
+		dn.zOrder = _node.zOrder - 1;
+		dn.decalOffsetFactor = -5.0f;
+		dn.decalOffsetUnits = -5.0f;
 
 		dn.shouldDisableDepthMask = YES;	// Don't update depth mask, to allow later...
 											// ..overlapping transparencies to all be drawn
-		[self.node addChild: dn];
+		[_node addChild: dn];
 		[self populateDisplayNode];			// Populate with the right shape
 	}
 }
@@ -698,6 +668,11 @@
 
 @implementation CC3NodeCenterOfGeometryBoundingVolume
 
+-(void) buildVolume {
+	if ( !(_node && _shouldBuildFromMesh) ) return;
+	
+	_centerOfGeometry = self.vertexLocations.centerOfGeometry;
+}
 
 #pragma mark Intersection testing
 
@@ -713,7 +688,7 @@
 }
 
 -(BOOL) doesIntersectRay: (CC3Ray) aRay {
-	if (shouldIgnoreRayIntersection) return NO;
+	if (_shouldIgnoreRayIntersection) return NO;
 	return CC3IsLocationOnRay(self.globalCenterOfGeometry, aRay);
 }
 
@@ -740,7 +715,7 @@
 }
 
 -(CC3Vector) locationOfRayIntesection: (CC3Ray) localRay {
-	if (shouldIgnoreRayIntersection) return kCC3VectorNull;
+	if (_shouldIgnoreRayIntersection) return kCC3VectorNull;
 	CC3Vector cog = self.centerOfGeometry;
 	return ( CC3IsLocationOnRay(cog, localRay) ) ? cog : kCC3VectorNull;
 }
@@ -750,6 +725,10 @@
 
 -(NSString*) displayNodeNameSuffix { return @"BV-CoG"; }
 
+-(BOOL) shouldDraw { return NO; }			// No shape to draw
+
+-(void) setShouldDraw: (BOOL) shdDraw {}	// No shape to draw
+
 @end
 
 
@@ -758,33 +737,60 @@
 
 @implementation CC3NodeSphericalBoundingVolume
 
+/**
+ * If building from the mesh, finds the sphere that currently encompasses all the vertices.
+ * Then, if the boundary should be maximized, finds the sphere that is the union of that sphere,
+ * and the sphere that previously encompassed all the vertices, otherwise, uses the new sphere.
+ */
+-(void) buildVolume {
+	if ( !(_node && _shouldBuildFromMesh) ) return;
+	
+	CC3VertexLocations* vtxLocs = self.vertexLocations;
+	CC3Vector newCOG = vtxLocs.centerOfGeometry;
+	GLfloat newRadius = vtxLocs.radius + self.node.boundingVolumePadding;
+	
+	if (_shouldMaximize) {
+		CC3Sphere unionSphere = CC3SphereUnion(CC3SphereMake(newCOG, newRadius),
+											   CC3SphereMake(_centerOfGeometry, _radius));
+		_centerOfGeometry = unionSphere.center;
+		_radius = unionSphere.radius;
+	} else {
+		_centerOfGeometry = newCOG;
+		_radius = newRadius;
+	}
+}
+
 -(GLfloat) radius {
 	[self updateIfNeeded];
-	return radius;
+	return _radius;
 }
 
 -(void) setRadius: (GLfloat) aRadius {
-	radius = aRadius;
-	isDirty = NO;
+	_radius = aRadius;
+	_isDirty = NO;
+	_shouldBuildFromMesh = NO;
 	[self markTransformDirty];
 }
 
 -(GLfloat) globalRadius {
 	[self updateIfNeeded];
-	return globalRadius;
+	return _globalRadius;
+}
+
+-(void) scaleBy: (GLfloat) scale {
+	self.radius = self.radius * scale;
+	[super scaleBy: scale];
 }
 
 -(CC3Sphere) sphere { return CC3SphereMake(self.centerOfGeometry, self.radius); }
 
 -(CC3Sphere) globalSphere { return CC3SphereMake(self.globalCenterOfGeometry, self.globalRadius); }
 
-// Template method that populates this instance from the specified other instance.
-// This method is invoked automatically during object copying via the copyWithZone: method.
 -(void) populateFrom: (CC3NodeSphericalBoundingVolume*) another {
 	[super populateFrom: another];
 
-	radius = another.radius;
-	globalRadius = another.globalRadius;
+	_radius = another.radius;
+	_globalRadius = another.globalRadius;
 }
 
 -(NSString*) fullDescription {
@@ -799,12 +805,13 @@
 -(void) transformVolume {
 	[super transformVolume];
 
-	// Expand the radius by the global scale of the node.
-	// In case the node's global scale is not uniform, use the largest of the
-	// three scale axes to ensure the scaled object is contained within the sphere.
-	CC3Vector nodeScale = node.globalScale;
-	GLfloat maxScale = MAX(MAX(nodeScale.x, nodeScale.y), nodeScale.z);
-	globalRadius = radius * maxScale;
+	CC3_PUSH_NOSHADOW
+	// Expand the radius by the global scale of the node. In case the node's global scale is not
+	// uniform, use the largest of the three scale axes to ensure the scaled object is contained
+	// within the sphere, and ensure that the radius is positive even if scale is negative.
+	CC3Vector ngs = _node.globalScale;
+	_globalRadius = _radius * ABS(MAX(MAX(ngs.x, ngs.y), ngs.z));
+	CC3_POP_NOSHADOW
 }
 
 
@@ -822,7 +829,7 @@
 }
 
 -(BOOL) doesIntersectRay: (CC3Ray) aRay {
-	if (shouldIgnoreRayIntersection) return NO;
+	if (_shouldIgnoreRayIntersection) return NO;
 	return CC3DoesRayIntersectSphere(aRay, self.globalSphere);
 }
 
@@ -856,8 +863,8 @@
 }
 
 -(CC3Vector) locationOfRayIntesection: (CC3Ray) localRay {
-	if (shouldIgnoreRayIntersection) return kCC3VectorNull;
-	return CC3RayIntersectionOfSphere(localRay, self.sphere);
+	if (_shouldIgnoreRayIntersection) return kCC3VectorNull;
+	return CC3RayIntersectionWithSphere(localRay, self.sphere);
 }
 
 
@@ -871,40 +878,84 @@
 
 -(void) populateDisplayNode {
 	CC3BoundingVolumeDisplayNode* dn = self.displayNode;
-	[dn populateAsSphereWithRadius: self.radius andTessellation: ccg(24, 24)];
+	[dn populateAsSphereWithRadius: self.radius andTessellation: CC3TessellationMake(24, 24)];
 	[dn doNotBufferVertexContent];
 	dn.location = self.centerOfGeometry;
+}
+
+
+#pragma mark Allocation and initialization
+
+// Don't delegate to initFromSphere: because this intializer must leave _shouldBuildFromMesh alone
+-(id) init {
+	if ( (self = [super init]) ) {
+		_radius = 0.0f;
+	}
+	return self;
+}
+
+-(id) initFromSphere: (CC3Sphere) sphere {
+	if ( (self = [super init]) ) {
+		_centerOfGeometry = sphere.center;
+		_radius = sphere.radius;
+		_shouldBuildFromMesh = NO;		// We want a fixed volume
+	}
+	return self;
+}
+
++(id) boundingVolumeFromSphere: (CC3Sphere) sphere {
+	return [[self alloc] initFromSphere: sphere];
 }
 
 @end
 
 
 #pragma mark -
-#pragma mark CC3NodeBoundingBoxVolume implementation
+#pragma mark CC3NodeBoxBoundingVolume implementation
 
-@implementation CC3NodeBoundingBoxVolume
+@implementation CC3NodeBoxBoundingVolume
 
--(CC3BoundingBox) boundingBox {
-	[self updateIfNeeded];
-	return boundingBox;
+/**
+ * If building from the mesh, finds the bounding box that currently encompasses all the vertices.
+ * Then, if the boundary should be maximized, finds the bounding box that is the union of that
+ * bounding box, and the bounding box that previously encompassed all the vertices, otherwise,
+ * uses the new bounding box.
+ */
+-(void) buildVolume {
+	if ( !(_node && _shouldBuildFromMesh) ) return;
+
+	CC3Box newBB = ((CC3MeshNode*)self.node).localContentBoundingBox;	// Includes possible padding
+	_boundingBox = _shouldMaximize ? CC3BoxUnion(newBB, _boundingBox) : newBB;
+	_centerOfGeometry = CC3BoxCenter(_boundingBox);
 }
 
--(void) setBoundingBox: (CC3BoundingBox) aBoundingBox {
-	boundingBox = aBoundingBox;
-	isDirty = NO;
+-(CC3Box) boundingBox {
+	[self updateIfNeeded];
+	return _boundingBox;
+}
+
+-(void) setBoundingBox: (CC3Box) aBoundingBox {
+	_boundingBox = aBoundingBox;
+	_isDirty = NO;
+	_shouldBuildFromMesh = NO;
 	[self markTransformDirty];
+}
+
+-(void) scaleBy: (GLfloat) scale {
+	self.boundingBox = CC3BoxScaleUniform(self.boundingBox, scale);
+	[super scaleBy: scale];
 }
 
 -(CC3Plane*) planes {
 	[self updateIfNeeded];
-	return planes;
+	return _planes;
 }
 
 -(GLuint) planeCount { return 6; }
 
 -(CC3Vector*) vertices {
 	[self updateIfNeeded];
-	return vertices;
+	return _vertices;
 }
 
 -(GLuint) vertexCount { return 8; }
@@ -912,39 +963,32 @@
 // Deprecated
 -(CC3Vector*) globalBoundingBoxVertices { return self.vertices; }
 
--(id) init {
-	if ( (self = [super init]) ) {
-		boundingBox = kCC3BoundingBoxZero;
-	}
-	return self;
-}
-
 // Template method that populates this instance from the specified other instance.
 // This method is invoked automatically during object copying via the copyWithZone: method.
--(void) populateFrom: (CC3NodeBoundingBoxVolume*) another {
+-(void) populateFrom: (CC3NodeBoxBoundingVolume*) another {
 	[super populateFrom: another];
 
-	boundingBox = another.boundingBox;
+	_boundingBox = another.boundingBox;
 }
 
 -(void) transformVolume {
 	[super transformVolume];
 
-	CC3Matrix* tMtx = node.transformMatrix;
+	CC3Matrix* tMtx = _node.globalTransformMatrix;
 
 	// Get the corners of the local bounding box
-	CC3Vector bbMin = boundingBox.minimum;
-	CC3Vector bbMax = boundingBox.maximum;
+	CC3Vector bbMin = _boundingBox.minimum;
+	CC3Vector bbMax = _boundingBox.maximum;
 	
 	// Construct all 8 corner vertices of the local bounding box and transform each to global coordinates
-	vertices[0] = [tMtx transformLocation: cc3v(bbMin.x, bbMin.y, bbMin.z)];
-	vertices[1] = [tMtx transformLocation: cc3v(bbMin.x, bbMin.y, bbMax.z)];
-	vertices[2] = [tMtx transformLocation: cc3v(bbMin.x, bbMax.y, bbMin.z)];
-	vertices[3] = [tMtx transformLocation: cc3v(bbMin.x, bbMax.y, bbMax.z)];
-	vertices[4] = [tMtx transformLocation: cc3v(bbMax.x, bbMin.y, bbMin.z)];
-	vertices[5] = [tMtx transformLocation: cc3v(bbMax.x, bbMin.y, bbMax.z)];
-	vertices[6] = [tMtx transformLocation: cc3v(bbMax.x, bbMax.y, bbMin.z)];
-	vertices[7] = [tMtx transformLocation: cc3v(bbMax.x, bbMax.y, bbMax.z)];
+	_vertices[0] = [tMtx transformLocation: cc3v(bbMin.x, bbMin.y, bbMin.z)];
+	_vertices[1] = [tMtx transformLocation: cc3v(bbMin.x, bbMin.y, bbMax.z)];
+	_vertices[2] = [tMtx transformLocation: cc3v(bbMin.x, bbMax.y, bbMin.z)];
+	_vertices[3] = [tMtx transformLocation: cc3v(bbMin.x, bbMax.y, bbMax.z)];
+	_vertices[4] = [tMtx transformLocation: cc3v(bbMax.x, bbMin.y, bbMin.z)];
+	_vertices[5] = [tMtx transformLocation: cc3v(bbMax.x, bbMin.y, bbMax.z)];
+	_vertices[6] = [tMtx transformLocation: cc3v(bbMax.x, bbMax.y, bbMin.z)];
+	_vertices[7] = [tMtx transformLocation: cc3v(bbMax.x, bbMax.y, bbMax.z)];
 }
 
 /**
@@ -954,39 +998,39 @@
  */
 -(void) buildPlanes {
 	CC3Vector normal;
-	CC3Matrix* tMtx = node.transformMatrix;
-	CC3Vector bbMin = vertices[0];
-	CC3Vector bbMax = vertices[7];
+	CC3Matrix* tMtx = _node.globalTransformMatrix;
+	CC3Vector bbMin = _vertices[0];
+	CC3Vector bbMax = _vertices[7];
 	
 	// Front plane
 	normal = CC3VectorNormalize([tMtx transformDirection: kCC3VectorUnitZPositive]);
-	planes[0] = CC3PlaneFromNormalAndLocation(normal, bbMax);
+	_planes[0] = CC3PlaneFromNormalAndLocation(normal, bbMax);
 	
 	// Back plane
 	normal = CC3VectorNormalize([tMtx transformDirection: kCC3VectorUnitZNegative]);
-	planes[1] = CC3PlaneFromNormalAndLocation(normal, bbMin);
+	_planes[1] = CC3PlaneFromNormalAndLocation(normal, bbMin);
 	
 	// Right plane
 	normal = CC3VectorNormalize([tMtx transformDirection: kCC3VectorUnitXPositive]);
-	planes[2] = CC3PlaneFromNormalAndLocation(normal, bbMax);
+	_planes[2] = CC3PlaneFromNormalAndLocation(normal, bbMax);
 	
 	// Left plane
 	normal = CC3VectorNormalize([tMtx transformDirection: kCC3VectorUnitXNegative]);
-	planes[3] = CC3PlaneFromNormalAndLocation(normal, bbMin);
+	_planes[3] = CC3PlaneFromNormalAndLocation(normal, bbMin);
 	
 	// Top plane
 	normal = CC3VectorNormalize([tMtx transformDirection: kCC3VectorUnitYPositive]);
-	planes[4] = CC3PlaneFromNormalAndLocation(normal, bbMax);
+	_planes[4] = CC3PlaneFromNormalAndLocation(normal, bbMax);
 	
 	// Bottom plane
 	normal = CC3VectorNormalize([tMtx transformDirection: kCC3VectorUnitYNegative]);
-	planes[5] = CC3PlaneFromNormalAndLocation(normal, bbMin);
+	_planes[5] = CC3PlaneFromNormalAndLocation(normal, bbMin);
 }
 
 -(NSString*) fullDescription {
 	NSMutableString* desc = [NSMutableString stringWithCapacity: 200];
 	[desc appendFormat: @"%@", self.description];
-	[desc appendFormat: @" with bounding box: %@", NSStringFromCC3BoundingBox(self.boundingBox)];
+	[desc appendFormat: @" with bounding box: %@", NSStringFromCC3Box(self.boundingBox)];
 	[self appendPlanesTo: desc];
 	[self appendVerticesTo: desc];
 	return desc;
@@ -996,8 +1040,8 @@
 #pragma mark Intersection testing
 
 -(CC3Vector) locationOfRayIntesection: (CC3Ray) localRay {
-	if (shouldIgnoreRayIntersection) return kCC3VectorNull;
-	return CC3RayIntersectionOfBoundingBox(localRay, self.boundingBox);
+	if (_shouldIgnoreRayIntersection) return kCC3VectorNull;
+	return CC3RayIntersectionWithBox(localRay, self.boundingBox);
 }
 
 
@@ -1015,6 +1059,33 @@
 	[dn doNotBufferVertexContent];
 }
 
+
+#pragma mark Allocation and initialization
+
+// Don't delegate to initFromBox: because this intializer must leave _shouldBuildFromMesh alone
+-(id) init {
+	if ( (self = [super init]) ) {
+		_boundingBox = kCC3BoxZero;
+	}
+	return self;
+}
+
+-(id) initFromBox: (CC3Box) box {
+	if ( (self = [super init]) ) {
+		_centerOfGeometry = CC3BoxCenter(box);
+		_boundingBox = box;
+		_shouldBuildFromMesh = NO;		// We want a fixed volume
+	}
+	return self;
+}
+
++(id) boundingVolumeFromBox: (CC3Box) box {
+	return [[self alloc] initFromBox: box]; }
+
+@end
+
+// Deprecated class
+@implementation CC3NodeBoundingBoxVolume
 @end
 
 
@@ -1023,38 +1094,32 @@
 
 @implementation CC3NodeTighteningBoundingVolumeSequence
 
-@synthesize boundingVolumes;
-
--(void) dealloc {
-	[boundingVolumes release];
-	[super dealloc];
-}
+@synthesize boundingVolumes=_boundingVolumes;
 
 -(void) setShouldMaximize: (BOOL) shouldMax {
-	shouldMaximize = shouldMax;
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		bv.shouldMaximize = shouldMax;
-	}
+	_shouldMaximize = shouldMax;
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) bv.shouldMaximize = shouldMax;
 }
 
 -(void) setNode:(CC3Node*) aNode {
 	[super setNode: aNode];
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		bv.node = aNode;
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) bv.node = aNode;
 }
 
 /** Overridden to keep the COG consistent for all BV's.  */
 -(void) setCenterOfGeometry: (CC3Vector) aLocation {
 	[super setCenterOfGeometry: aLocation];
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		bv.centerOfGeometry = aLocation;
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) bv.centerOfGeometry = aLocation;
+}
+
+-(void) scaleBy: (GLfloat) scale {
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) [bv scaleBy: scale];
+	[super scaleBy: scale];
 }
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		boundingVolumes = [[CCArray array] retain];
+		_boundingVolumes = [NSMutableArray array];
 	}
 	return self;
 }
@@ -1063,67 +1128,55 @@
 // This method is invoked automatically during object copying via the copyWithZone: method.
 -(void) populateFrom: (CC3NodeTighteningBoundingVolumeSequence*) another {
 	[super populateFrom: another];
-	
-	for(CC3NodeBoundingVolume* bv in another.boundingVolumes) {
-		[boundingVolumes addObject: [bv autoreleasedCopy]];		// retained through collection
-	}
+	for(CC3NodeBoundingVolume* bv in another.boundingVolumes)
+		[_boundingVolumes addObject: [bv copy]];
 }
 
 -(void) addBoundingVolume: (CC3NodeBoundingVolume*) aBoundingVolume {
-	[boundingVolumes addObject: aBoundingVolume];
-	aBoundingVolume.node = self.node;
+	[_boundingVolumes addObject: aBoundingVolume];
+	aBoundingVolume.node = _node;
 }
 
 -(void) markDirty {
 	[super markDirty];
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		[bv markDirty];
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) [bv markDirty];
 }
 
 -(void) markTransformDirty {
 	[super markTransformDirty];
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		[bv markTransformDirty];
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) [bv markTransformDirty];
 }
 
 /** Builds each contained bounding volume, if needed, and sets the local centerOfGeometry from the last one. */
 -(void) buildVolume {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) {
 		[bv updateIfNeeded];
-		centerOfGeometry = bv.centerOfGeometry;
+		_centerOfGeometry = bv.centerOfGeometry;
 	}
 }
 
 -(void) transformVolume {
 	[super transformVolume];
-
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		[bv transformVolume];
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) [bv transformVolume];
 }
 
 -(NSString*) description {
-	if (boundingVolumes.count == 0) {
+	if (_boundingVolumes.count == 0)
 		return [NSString stringWithFormat: @"%@ containing nothing", [self class]];
-	}
+
 	NSMutableString* desc = [NSMutableString stringWithCapacity: 200];
 	[desc appendFormat: @"%@ containing:", [self class]];
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		[desc appendFormat: @"\n\t%@", bv];
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) [desc appendFormat: @"\n\t%@", bv];
 	return desc;
 }
 
 -(NSString*) fullDescription {
-	if (boundingVolumes.count == 0) return self.description;
+	if (_boundingVolumes.count == 0) return self.description;
 	
 	NSMutableString* desc = [NSMutableString stringWithCapacity: 200];
 	[desc appendFormat: @"%@ containing:", [self class]];
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes)
 		[desc appendFormat: @"\n\t%@", bv.fullDescription];
-	}
 	return desc;
 }
 
@@ -1131,119 +1184,84 @@
 #pragma mark Intersection testing
 
 -(BOOL) doesIntersect: (CC3BoundingVolume*) aBoundingVolume {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		if( ![bv doesIntersect: aBoundingVolume] ) {
-			return NO;
-		}
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes)
+		if( ![bv doesIntersect: aBoundingVolume] ) return NO;
 	return YES;
 }
 
 -(BOOL) doesIntersectLocation: (CC3Vector) aLocation {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		if( ![bv doesIntersectLocation: aLocation] ) {
-			return NO;
-		}
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes)
+		if( ![bv doesIntersectLocation: aLocation] ) return NO;
 	return YES;
 }
 
 -(BOOL) doesIntersectRay: (CC3Ray) aRay {
-	if (shouldIgnoreRayIntersection) return NO;
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		if( ![bv doesIntersectRay: aRay] ) {
-			return NO;
-		}
-	}
+	if (_shouldIgnoreRayIntersection) return NO;
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes)
+		if( ![bv doesIntersectRay: aRay] ) return NO;
 	return YES;
 }
 
 -(BOOL) isInFrontOfPlane: (CC3Plane) aPlane {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		if( [bv isInFrontOfPlane: aPlane] ) {
-			return YES;
-		}
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes)
+		if( [bv isInFrontOfPlane: aPlane] ) return YES;
 	return NO;
 }
 
--(BOOL) doesIntersectSphere: (CC3Sphere) aSphere
-					   from: (CC3BoundingVolume*) otherBoundingVolume {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		if( ![bv doesIntersectSphere: aSphere from: otherBoundingVolume] ) {
-			return NO;
-		}
-	}
+-(BOOL) doesIntersectSphere: (CC3Sphere) aSphere from: (CC3BoundingVolume*) otherBoundingVolume {
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes)
+		if( ![bv doesIntersectSphere: aSphere from: otherBoundingVolume] ) return NO;
 	return YES;
 }
 
 -(BOOL) doesIntersectConvexHullOf: (GLuint) numOtherPlanes
 						   planes: (CC3Plane*) otherPlanes
 							 from: (CC3BoundingVolume*) otherBoundingVolume {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes)
 		if( ![bv doesIntersectConvexHullOf: numOtherPlanes
 									planes: otherPlanes
-									  from: otherBoundingVolume] ) {
-			return NO;
-		}
-	}
+									  from: otherBoundingVolume] ) return NO;
 	return YES;
 }
 
 /** Returns the location of the intersection on the tightest child BV. */
 -(CC3Vector) locationOfRayIntesection: (CC3Ray) localRay {
-	if (shouldIgnoreRayIntersection) return kCC3VectorNull;
-	CC3NodeBoundingVolume* bv = boundingVolumes.lastObject;
+	if (_shouldIgnoreRayIntersection) return kCC3VectorNull;
+	CC3NodeBoundingVolume* bv = _boundingVolumes.lastObject;
 	return bv ? [bv locationOfRayIntesection: localRay] : kCC3VectorNull;
 }
 
 
 #pragma mark Intersection logging
 
-#if LOGGING_ENABLED
-
 -(BOOL) shouldLogIntersections {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		if( bv.shouldLogIntersections ) return YES;
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) if( bv.shouldLogIntersections ) return YES;
 	return NO;
 }
 
 -(void) setShouldLogIntersections: (BOOL) shouldLog {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		bv.shouldLogIntersections = shouldLog;
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) bv.shouldLogIntersections = shouldLog;
 }
 
 -(BOOL) shouldLogIntersectionMisses {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		if( bv.shouldLogIntersectionMisses ) return YES;
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) if( bv.shouldLogIntersectionMisses ) return YES;
 	return NO;
 }
 
 -(void) setShouldLogIntersectionMisses: (BOOL) shouldLog {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		bv.shouldLogIntersectionMisses = shouldLog;
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) bv.shouldLogIntersectionMisses = shouldLog;
 }
-
-#endif
 
 
 #pragma mark Drawing bounding volume
 
 -(BOOL) shouldDraw {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		if( bv.shouldDraw ) return YES;
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) if( bv.shouldDraw ) return YES;
 	return NO;
 }
 
 -(void) setShouldDraw: (BOOL) shdDraw {
-	for (CC3NodeBoundingVolume* bv in boundingVolumes) {
-		bv.shouldDraw = shdDraw;
-	}
+	for (CC3NodeBoundingVolume* bv in _boundingVolumes) bv.shouldDraw = shdDraw;
 }
 
 @end
@@ -1254,17 +1272,35 @@
 
 @implementation CC3NodeSphereThenBoxBoundingVolume
 
--(CC3NodeSphericalBoundingVolume*) sphericalBoundingVolume { return [boundingVolumes objectAtIndex: 0]; }
+-(CC3NodeSphericalBoundingVolume*) sphericalBoundingVolume { return [_boundingVolumes objectAtIndex: 0]; }
 
--(CC3NodeBoundingBoxVolume*) boxBoundingVolume { return [boundingVolumes objectAtIndex: 1]; }
+-(CC3NodeBoxBoundingVolume*) boxBoundingVolume { return [_boundingVolumes objectAtIndex: 1]; }
 
-+(id) boundingVolumeWithSphere: (CC3NodeSphericalBoundingVolume*) sphereBV
-						andBox: (CC3NodeBoundingBoxVolume*) boxBV {
-	CC3NodeSphereThenBoxBoundingVolume* sbbv = [self boundingVolume];
++(id) boundingVolume {
+	return [self boundingVolumeWithSphereVolume: [CC3NodeSphericalBoundingVolume boundingVolume]
+								   andBoxVolume: [CC3NodeBoxBoundingVolume boundingVolume]];
+}
+
++(id) boundingVolumeWithSphereVolume: (CC3NodeSphericalBoundingVolume*) sphereBV
+						andBoxVolume: (CC3NodeBoxBoundingVolume*) boxBV {
+	CC3NodeSphereThenBoxBoundingVolume* sbbv = [super boundingVolume];
 	[sbbv addBoundingVolume: sphereBV];
 	[sbbv addBoundingVolume: boxBV];
 	return sbbv;
 }
+
++(id) boundingVolumeFromSphere: (CC3Sphere) sphere
+						andBox: (CC3Box) box {
+	return [self boundingVolumeWithSphereVolume: [CC3NodeSphericalBoundingVolume boundingVolumeFromSphere: sphere]
+								   andBoxVolume: [CC3NodeBoxBoundingVolume boundingVolumeFromBox: box]];
+}
+
++(id) boundingVolumeCircumscribingBox: (CC3Box) box {
+	return [self boundingVolumeFromSphere: CC3SphereFromCircumscribingBox(box) andBox: box];
+}
+
+// Deprecated
++(id) vertexLocationsSphereandBoxBoundingVolume { return [self boundingVolume]; }
 
 @end
 
@@ -1300,7 +1336,7 @@
 -(BOOL) doesIntersectLocation: (CC3Vector) aLocation { return YES; }
 
 -(BOOL) doesIntersectRay: (CC3Ray) aRay {
-	if (shouldIgnoreRayIntersection) return NO;
+	if (_shouldIgnoreRayIntersection) return NO;
 	return YES;
 }
 
@@ -1314,14 +1350,14 @@
 							 from: (CC3BoundingVolume*) otherBoundingVolume { return YES; }
 
 -(CC3Vector) locationOfRayIntesection: (CC3Ray) localRay {
-	if (shouldIgnoreRayIntersection) return kCC3VectorNull;
+	if (_shouldIgnoreRayIntersection) return kCC3VectorNull;
 	return localRay.startLocation;
 }
 
 
 #pragma mark Drawing bounding volume
 
--(BOOL) shouldDraw { return shouldDraw; }
+-(BOOL) shouldDraw { return _shouldDraw; }
 
 -(void) setShouldDraw: (BOOL) shdDraw {}
 
@@ -1359,9 +1395,8 @@
 
 #pragma mark Drawing bounding volume
 
--(BOOL) shouldDraw { return shouldDraw; }
+-(BOOL) shouldDraw { return _shouldDraw; }
 
 -(void) setShouldDraw: (BOOL) shdDraw {}
 
 @end
-

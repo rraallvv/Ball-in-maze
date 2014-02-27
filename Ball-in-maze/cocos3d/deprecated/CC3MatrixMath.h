@@ -1,9 +1,9 @@
 /*
  * CC3MatrixMath.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Kazmath functions copyright (c) 2008, Luke Benstead. All rights reserved.
@@ -11,7 +11,7 @@
  * http://www.kazade.co.uk/kazmath/
  *
  * Augmented and modified for use with Objective-C in cocos3d by Bill Hollings.
- * Additions and modifications copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Additions and modifications copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted provided that the following conditions are met:
@@ -44,7 +44,7 @@
  * in that order, stores the result in 4x4 GL matrix m and returns the result.
  * This algorithm matches up along the positive Y axis, which is the OpenGL ES default.
  */
-static inline void kmMat4RotationYXZ(GLfloat* m, CC3Vector aRotation) {
+static inline void CC3KMMat4RotationYXZ(GLfloat* m, CC3Vector aRotation) {
 /*
      |  cycz + sxsysz   czsxsy - cysz   cxsy  0 |
  M = |  cxsz            cxcz           -sx    0 |
@@ -53,7 +53,7 @@ static inline void kmMat4RotationYXZ(GLfloat* m, CC3Vector aRotation) {
 	 
      where cA = cos(A), sA = sin(A) for A = x,y,z
  */
-	CC3Vector rotRads = CC3VectorScaleUniform(aRotation, DegreesToRadiansFactor);
+	CC3Vector rotRads = CC3VectorScaleUniform(aRotation, kCC3DegToRadFactor);
 	
 	GLfloat cx = cosf(rotRads.x);
 	GLfloat sx = sinf(rotRads.x);
@@ -88,7 +88,7 @@ static inline void kmMat4RotationYXZ(GLfloat* m, CC3Vector aRotation) {
  * in that order, stores the result in pOut and returns the result
  * This algorithm matches up along the positive Z axis, which is used by some commercial 3D editors.
  */
-static inline void kmMat4RotationZYX(GLfloat* m, CC3Vector aRotation) {
+static inline void CC3KMMat4RotationZYX(GLfloat* m, CC3Vector aRotation) {
 /*
      |  cycz  -cxsz + sxsycz   sxsz + cxsycz  0 |
  M = |  cysz   cxcz + sxsysz  -sxcz + cxsysz  0 |
@@ -97,7 +97,7 @@ static inline void kmMat4RotationZYX(GLfloat* m, CC3Vector aRotation) {
 	 
      where cA = cos(A), sA = sin(A) for A = x,y,z
  */
-	CC3Vector rotRads = CC3VectorScaleUniform(aRotation, DegreesToRadiansFactor);
+	CC3Vector rotRads = CC3VectorScaleUniform(aRotation, kCC3DegToRadFactor);
 	
 	GLfloat cx = cosf(rotRads.x);
 	GLfloat sx = sinf(rotRads.x);
@@ -128,14 +128,14 @@ static inline void kmMat4RotationZYX(GLfloat* m, CC3Vector aRotation) {
 }
 
 /** Builds a rotation matrix around the X-axis, stores the result in pOut and returns the result */
-static inline void kmMat4RotationX(GLfloat* m, const GLfloat degrees) {
+static inline void CC3KMMat4RotationX(GLfloat* m, const GLfloat degrees) {
 /*
      |  1  0       0       0 |
  M = |  0  cos(A) -sin(A)  0 |
      |  0  sin(A)  cos(A)  0 |
      |  0  0       0       1 |
  */
-	GLfloat radians = DegreesToRadians(degrees);
+	GLfloat radians = CC3DegToRad(degrees);
 	GLfloat c = cosf(radians);
 	GLfloat s = sinf(radians);
 	
@@ -161,14 +161,14 @@ static inline void kmMat4RotationX(GLfloat* m, const GLfloat degrees) {
 }
 
 /** Builds a rotation matrix around the Y-axis, stores the result in pOut and returns the result */
-static inline void kmMat4RotationY(GLfloat* m, const GLfloat degrees) {
+static inline void CC3KMMat4RotationY(GLfloat* m, const GLfloat degrees) {
 /*
      |  cos(A)  0   sin(A)  0 |
  M = |  0       1   0       0 |
      | -sin(A)  0   cos(A)  0 |
      |  0       0   0       1 |
  */
-	GLfloat radians = DegreesToRadians(degrees);
+	GLfloat radians = CC3DegToRad(degrees);
 	GLfloat c = cosf(radians);
 	GLfloat s = sinf(radians);
 	
@@ -194,14 +194,14 @@ static inline void kmMat4RotationY(GLfloat* m, const GLfloat degrees) {
 }
 
 /** Builds a rotation matrix around the Z-axis, stores the result in pOut and returns the result */
-static inline void kmMat4RotationZ(GLfloat* m, const GLfloat degrees) {
+static inline void CC3KMMat4RotationZ(GLfloat* m, const GLfloat degrees) {
 /*
      |  cos(A)  -sin(A)   0   0 |
  M = |  sin(A)   cos(A)   0   0 |
      |  0        0        1   0 |
      |  0        0        0   1 |
  */
-	GLfloat radians = DegreesToRadians(degrees);
+	GLfloat radians = CC3DegToRad(degrees);
 	GLfloat c = cosf(radians);
 	GLfloat s = sinf(radians);
 	
@@ -230,7 +230,7 @@ static inline void kmMat4RotationZ(GLfloat* m, const GLfloat degrees) {
  * Builds a rotation matrix from a quaternion to a rotation matrix,
  * stores the result in pOut and returns the result.
  */
-static inline void kmMat4RotationQuaternion(GLfloat* m, const CC3Vector4 q) {
+static inline void CC3KMMat4RotationQuaternion(GLfloat* m, const CC3Vector4 q) {
 /*
      |       2     2									|
      | 1 - 2Y  - 2Z    2XY + 2ZW      2XZ - 2YW		 0	|
@@ -281,7 +281,7 @@ static inline void kmMat4RotationQuaternion(GLfloat* m, const CC3Vector4 q) {
  * Builds a transformation matrix that translates, rotates and scales according to the specified vectors,
  * stores the result in pOut and returns the result.
  */
-static inline void kmMat4Transformation(GLfloat* m,
+static inline void CC3KMMat4Transformation(GLfloat* m,
 										const CC3Vector aTranslation,
 										const CC3Vector aRotation,
 										const CC3Vector aScale) {
@@ -297,7 +297,7 @@ static inline void kmMat4Transformation(GLfloat* m,
  */	
 	
 	// Start with basic rotation matrix
-	kmMat4RotationYXZ(m, aRotation);
+	CC3KMMat4RotationYXZ(m, aRotation);
 	
 	// Adjust for scale and translation
 	

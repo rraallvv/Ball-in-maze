@@ -1,9 +1,9 @@
 /*
  * CC3Identifiable.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -33,31 +33,36 @@
 
 @implementation CC3Identifiable
 
-@synthesize tag, name, userData;
+@synthesize tag=_tag, name=_name, userData=_userData;
 
 static GLint instanceCount = 0;
 
 -(void) dealloc {
-	[self releaseUserData];
-	[name release];
 	instanceCount--;
-	[super dealloc];
 }
 
 -(BOOL) deriveNameFrom: (CC3Identifiable*) another {
-	if (name) return NO;
+	return [self deriveNameFrom: another usingSuffix: self.nameSuffix];
+}
+
+-(BOOL) deriveNameFrom: (CC3Identifiable*) another usingSuffix: (NSString*) suffix {
+	if (_name) return NO;
 	NSString* otherName = another.name;
 	if ( !otherName ) return NO;
-	NSString* nameSfx = self.nameSuffix;
-	if ( !nameSfx ) return NO;
-	self.name = [NSString stringWithFormat: @"%@-%@", otherName, nameSfx];
+	if ( !suffix ) return NO;
+	self.name = [NSString stringWithFormat: @"%@-%@", otherName, suffix];
 	return YES;
 }
 
 -(NSString*) nameSuffix {
-	NSAssert1(NO, @"%@ must override the nameSuffix property.", [self class]);
+	CC3Assert(NO, @"%@ must override the nameSuffix property.", [self class]);
 	return nil;
 }
+
+// Deprecated
+-(void) releaseUserData {}
+-(NSObject*) sharedUserData { return self.userData; }
+-(void) setSharedUserData: (NSObject*) sharedUserData { self.userData = sharedUserData; }
 
 
 #pragma mark Allocation and initialization
@@ -80,18 +85,9 @@ static GLint instanceCount = 0;
 	return self;
 }
 
--(void) initUserData {}
-
--(void) releaseUserData {}
-
-// Template method that populates this instance from the specified other instance.
-// This method is invoked automatically during object copying via the copyWithZone: method.
-// Subclasses that extend copying will override this method.
 -(void) populateFrom: (CC3Identifiable*) another {
 	[self copyUserDataFrom: another];
 }
-
--(void) copyUserDataFrom: (CC3Identifiable*) another {}
 
 // Implementation to keep compiler happy so this method can be included in interface for documentation.
 -(id) copy { return [super copy]; }
@@ -118,28 +114,24 @@ static GLint instanceCount = 0;
 
 -(BOOL) shouldIncludeInDeepCopy { return YES; }
 
+-(void) initUserData { _userData = nil; }
+
+-(void) copyUserDataFrom: (CC3Identifiable*) another { self.userData = another.userData; }
+
 // Class variable tracking the most recent tag value assigned. This class variable is 
 // automatically incremented whenever the method nextTag is called.
 static GLuint lastAssignedTag;
 
--(GLuint) nextTag {
-	return ++lastAssignedTag;
-}
+-(GLuint) nextTag { return ++lastAssignedTag; }
 
-+(void) resetTagAllocation {
-	lastAssignedTag = 0;
-}
++(void) resetTagAllocation { lastAssignedTag = 0; }
 
 -(NSString*) description {
-	return [NSString stringWithFormat: @"%@ %@:%u", [self class], (name ? name : @"Unnamed"), tag];
+	return [NSString stringWithFormat: @"%@ '%@':%u", [self class], (_name ? _name : @"Unnamed"), _tag];
 }
 
--(NSString*) fullDescription {
-	return [self description];
-}
+-(NSString*) fullDescription { return [self description]; }
 
-+(GLint) instanceCount {
-	return instanceCount;
-}
++(GLint) instanceCount { return instanceCount; }
 
 @end

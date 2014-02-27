@@ -1,9 +1,9 @@
 /*
  * CC3LinearMatrix.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -43,7 +43,7 @@
  * only 3D linear transformations, this offers a storage savings over using a full 4x4 matrix.
  */
 @interface CC3LinearMatrix : CC3Matrix {
-	CC3Matrix3x3 contents;
+	CC3Matrix3x3 _contents;
 }
 
 

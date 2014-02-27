@@ -1,9 +1,9 @@
 /*
  * CC3PODMeshNode.mm
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -31,6 +31,8 @@
 
 #import "CC3PODMeshNode.h"
 #import "CC3PVRTModelPOD.h"
+#import "CC3PODMaterial.h"
+#import "CC3PFXResource.h"
 
 
 #pragma mark -
@@ -39,12 +41,12 @@
 @implementation CC3MeshNode (PVRPOD)
 
 // Subclasses must override to use instance variable.
--(int) podMaterialIndex { return 0; }
+-(GLint) podMaterialIndex { return 0; }
 
 // Subclasses must override to use instance variable.
--(void) setPodMaterialIndex: (int) aPODIndex {}
+-(void) setPodMaterialIndex: (GLint) aPODIndex {}
 
--(id) initAtIndex: (int) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
+-(id) initAtIndex: (GLint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
 	if ( (self = [super initAtIndex: aPODIndex fromPODResource: aPODRez]) ) {
 		SPODNode* pmn = (SPODNode*)[self nodePODStructAtIndex: aPODIndex
 											  fromPODResource: (CC3PODResource*) aPODRez];
@@ -54,9 +56,8 @@
 		}
 		// If this node has a material, build it
 		self.podMaterialIndex = pmn->nIdxMaterial;
-		if (self.podMaterialIndex >= 0) {
+		if (self.podMaterialIndex >= 0)
 			self.material = [aPODRez materialAtIndex: self.podMaterialIndex];
-		}
 	}
 	return self; 
 }
@@ -73,35 +74,41 @@
 
 @implementation CC3PODMeshNode
 
--(int) podIndex { return podIndex; }
+-(GLint) podIndex { return _podIndex; }
 
--(void) setPodIndex: (int) aPODIndex { podIndex = aPODIndex; }
+-(void) setPodIndex: (GLint) aPODIndex { _podIndex = aPODIndex; }
 
--(int) podContentIndex { return podContentIndex; }
+-(GLint) podContentIndex { return _podContentIndex; }
 
--(void) setPodContentIndex: (int) aPODIndex { podContentIndex = aPODIndex; }
+-(void) setPodContentIndex: (GLint) aPODIndex { _podContentIndex = aPODIndex; }
 
--(int) podParentIndex { return podParentIndex; }
+-(GLint) podParentIndex { return _podParentIndex; }
 
--(void) setPodParentIndex: (int) aPODIndex { podParentIndex = aPODIndex; }
+-(void) setPodParentIndex: (GLint) aPODIndex { _podParentIndex = aPODIndex; }
 
--(int) podMaterialIndex { return podMaterialIndex; }
+-(GLint) podMaterialIndex { return _podMaterialIndex; }
 
--(void) setPodMaterialIndex: (int) aPODIndex { podMaterialIndex = aPODIndex; }
+-(void) setPodMaterialIndex: (GLint) aPODIndex { _podMaterialIndex = aPODIndex; }
 
 // Template method that populates this instance from the specified other instance.
 // This method is invoked automatically during object copying via the copyWithZone: method.
 -(void) populateFrom: (CC3PODMeshNode*) another {
 	[super populateFrom: another];
 
-	podIndex = another.podIndex;
-	podContentIndex = another.podContentIndex;
-	podParentIndex = another.podParentIndex;
-	podMaterialIndex = another.podMaterialIndex;
+	_podIndex = another.podIndex;
+	_podContentIndex = another.podContentIndex;
+	_podParentIndex = another.podParentIndex;
+	_podMaterialIndex = another.podMaterialIndex;
+}
+
+-(void) setMaterial: (CC3PODMaterial*) aMaterial {
+	[super setMaterial: aMaterial];
+	if ( [aMaterial isKindOfClass: [CC3PODMaterial class]] )
+		[aMaterial.pfxEffect populateMeshNode: self];
 }
 
 -(NSString*) description {
-	return [NSString stringWithFormat: @"%@ (POD index: %i)", [super description], podIndex];
+	return [NSString stringWithFormat: @"%@ (POD index: %i)", [super description], _podIndex];
 }
 
 @end

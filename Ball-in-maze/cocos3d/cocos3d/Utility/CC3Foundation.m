@@ -1,9 +1,9 @@
 /*
  * CC3Foundation.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -68,9 +68,9 @@ void CC3VectorOrthonormalize(CC3Vector* vectors, GLuint vectorCount) {
 #pragma mark -
 #pragma mark Bounding box structure and functions
 
-CC3BoundingBox CC3BoundingBoxEngulfLocation(CC3BoundingBox bb, CC3Vector aLoc) {
-	CC3BoundingBox bbOut;
-	if(CC3BoundingBoxIsNull(bb)) {
+CC3Box CC3BoxEngulfLocation(CC3Box bb, CC3Vector aLoc) {
+	CC3Box bbOut;
+	if(CC3BoxIsNull(bb)) {
 		bbOut.minimum = aLoc;
 		bbOut.maximum = aLoc;
 	} else {
@@ -85,23 +85,7 @@ CC3BoundingBox CC3BoundingBoxEngulfLocation(CC3BoundingBox bb, CC3Vector aLoc) {
 	return bbOut;
 }
 
-/**
- * Returns the location that the specified ray intersects the specified bounding box,
- * on the side of the bounding box that has the specified normal, but only if the
- * intersection distance is less than the specified previous intersection location.
- *
- * The distance measurement is specified in the W component of the returned 4D vector.
- *
- * If the ray does not intersect the specified side of the bounding box, if the side
- * is behind the ray, or if the intersection distance is larger than that for the
- * specified previous intersection location is returned.
- *
- * This method first creates the plane on which the side exists, finds the intersection
- * of the ray and that plane, determines whether the intersection location is actually
- * within the bounding box, and then tests whether the intersection distance is less
- * than for the specified previous intersection.
- */
-CC3Vector4 CC3RayIntersectionOfBoundingBoxSide(CC3Ray aRay, CC3BoundingBox bb, CC3Vector sideNormal, CC3Vector4 prevHit) {
+CC3Vector4 CC3RayIntersectionWithBoxSide(CC3Ray aRay, CC3Box bb, CC3Vector sideNormal, CC3Vector4 prevHit) {
 	
 	// Determine which corner to use from the direction of the edge plane normal,
 	// create the edge plane, and determine where the ray intersects the edge plane.
@@ -111,8 +95,7 @@ CC3Vector4 CC3RayIntersectionOfBoundingBoxSide(CC3Ray aRay, CC3BoundingBox bb, C
 	
 	// If ray is parallel to edge plane, or if edge plane is behind the ray
 	// start, we have no intersection, so return the previous intersection.
-	if (CC3Vector4IsNull(sideHit)) return prevHit;
-	if (sideHit.w < 0.0f) return prevHit;
+	if (sideHit.w < 0.0f || CC3Vector4IsNull(sideHit)) return prevHit;
 	
 	// To avoid missed intersections due to rounding errors when checking if the
 	// intersection is within the bounding box, force the side plane intersection
@@ -123,25 +106,48 @@ CC3Vector4 CC3RayIntersectionOfBoundingBoxSide(CC3Ray aRay, CC3BoundingBox bb, C
 	
 	// If the side intersection location is not within
 	// the bounding box, return the previous intersection.
-	CC3Vector edgeHit3d = CC3VectorFromTruncatedCC3Vector4(sideHit);
-	if ( !CC3BoundingBoxContainsLocation(bb, edgeHit3d) ) return prevHit;
+	if ( !CC3BoxContainsLocation(bb, sideHit.v) ) return prevHit;
 	
 	// If the ray distance to this side is less than the previous intersection,
 	// return this intersection, otherwise return the previous intersection.
 	return sideHit.w < prevHit.w ? sideHit : prevHit;
 }
 
-CC3Vector  CC3RayIntersectionOfBoundingBox(CC3Ray aRay, CC3BoundingBox bb) {
-	if (CC3BoundingBoxIsNull(bb)) return kCC3VectorNull;	// Short-circuit null bounding box
+CC3Vector  CC3RayIntersectionWithBox(CC3Ray aRay, CC3Box bb) {
+	if (CC3BoxIsNull(bb)) return kCC3VectorNull;	// Short-circuit null bounding box
 	CC3Vector4 closestHit = kCC3Vector4Null;
-	closestHit = CC3RayIntersectionOfBoundingBoxSide(aRay, bb, kCC3VectorUnitXPositive, closestHit);
-	closestHit = CC3RayIntersectionOfBoundingBoxSide(aRay, bb, kCC3VectorUnitXNegative, closestHit);
-	closestHit = CC3RayIntersectionOfBoundingBoxSide(aRay, bb, kCC3VectorUnitYPositive, closestHit);
-	closestHit = CC3RayIntersectionOfBoundingBoxSide(aRay, bb, kCC3VectorUnitYNegative, closestHit);
-	closestHit = CC3RayIntersectionOfBoundingBoxSide(aRay, bb, kCC3VectorUnitZPositive, closestHit);
-	closestHit = CC3RayIntersectionOfBoundingBoxSide(aRay, bb, kCC3VectorUnitZNegative, closestHit);
-	return CC3VectorFromTruncatedCC3Vector4(closestHit);	
+	closestHit = CC3RayIntersectionWithBoxSide(aRay, bb, kCC3VectorUnitXPositive, closestHit);
+	closestHit = CC3RayIntersectionWithBoxSide(aRay, bb, kCC3VectorUnitXNegative, closestHit);
+	closestHit = CC3RayIntersectionWithBoxSide(aRay, bb, kCC3VectorUnitYPositive, closestHit);
+	closestHit = CC3RayIntersectionWithBoxSide(aRay, bb, kCC3VectorUnitYNegative, closestHit);
+	closestHit = CC3RayIntersectionWithBoxSide(aRay, bb, kCC3VectorUnitZPositive, closestHit);
+	closestHit = CC3RayIntersectionWithBoxSide(aRay, bb, kCC3VectorUnitZNegative, closestHit);
+	return closestHit.v;
 }
+
+// Deprecated functions
+CC3Vector CC3VectorFromTruncatedCC3Vector4(CC3Vector4 v) { return v.v; }
+CC3Vector CC3VectorFromQuaternion(CC3Quaternion q) { return q.v; }
+NSString* NSStringFromCC3BoundingBox(CC3Box bb) { return NSStringFromCC3Box(bb); }
+CC3Box CC3BoundingBoxFromMinMax(CC3Vector minVtx, CC3Vector maxVtx) { return CC3BoxFromMinMax(minVtx, maxVtx); }
+CC3Box CC3BoundingBoxMake(GLfloat minX, GLfloat minY, GLfloat minZ, GLfloat maxX, GLfloat maxY, GLfloat maxZ) { return CC3BoxMake(minX, minY, minZ, maxX, maxY, maxZ); }
+BOOL CC3BoundingBoxesAreEqual(CC3Box bb1, CC3Box bb2) { return CC3BoxesAreEqual(bb1, bb2); }
+BOOL CC3BoundingBoxIsZero(CC3Box bb) { return CC3BoxIsZero(bb); }
+BOOL CC3BoundingBoxIsNull(CC3Box bb) { return CC3BoxIsNull(bb); }
+CC3Vector CC3BoundingBoxCenter(CC3Box bb) { return CC3BoxCenter(bb); }
+CC3Vector CC3BoundingBoxSize(CC3Box bb) { return CC3BoxSize(bb); }
+BOOL CC3BoundingBoxContainsLocation(CC3Box bb, CC3Vector aLoc) { return CC3BoxContainsLocation(bb, aLoc); }
+CC3Box CC3BoundingBoxEngulfLocation(CC3Box bb, CC3Vector aLoc) { return CC3BoxEngulfLocation(bb, aLoc); }
+CC3Box CC3BoundingBoxUnion(CC3Box bb1, CC3Box bb2) { return CC3BoxUnion(bb1, bb2); }
+CC3Box CC3BoundingBoxAddPadding(CC3Box bb, CC3Vector padding) { return CC3BoxAddPadding(bb, padding); }
+CC3Box CC3BoundingBoxAddUniformPadding(CC3Box bb, GLfloat padding) { return CC3BoxAddUniformPadding(bb, padding); }
+CC3Box CC3BoundingBoxTranslate(CC3Box bb, CC3Vector offset) { return CC3BoxTranslate(bb, offset); }
+CC3Box CC3BoundingBoxTranslateFractionally(CC3Box bb, CC3Vector offsetScale) { return CC3BoxTranslateFractionally(bb, offsetScale); }
+CC3Box CC3BoundingBoxMoveCenterToOrigin(CC3Box bb) { return CC3BoxMoveCenterToOrigin(bb); }
+CC3Box CC3BoundingBoxScale(CC3Box bb, CC3Vector scale) { return CC3BoxScale(bb, scale); }
+CC3Box CC3BoundingBoxScaleUniform(CC3Box bb, GLfloat scale) { return CC3BoxScaleUniform(bb, scale); }
+CC3Vector CC3RayIntersectionWithBoundingBox(CC3Ray aRay, CC3Box bb) { return CC3RayIntersectionWithBox(aRay, bb); }
+CC3Vector4 CC3RayIntersectionWithBoundingBoxSide(CC3Ray aRay, CC3Box bb, CC3Vector sideNormal, CC3Vector4 prevHit) { return CC3RayIntersectionWithBoxSide(aRay, bb, sideNormal, prevHit); }
 
 
 #pragma mark -
@@ -189,7 +195,7 @@ CC3Quaternion CC3QuaternionSlerp(CC3Quaternion q1, CC3Quaternion q2, GLfloat ble
 		v2Weight = (sinf(theta * blendFactor) * oneOverSinTheta);
 	}
 	CC3Vector4 result = CC3QuaternionNormalize(CC3Vector4Add(CC3QuaternionScaleUniform(q1, v1Weight),
-																CC3QuaternionScaleUniform(q2, v2Weight)));
+															CC3QuaternionScaleUniform(q2, v2Weight)));
 	LogTrace(@"SLERP with cos %.3f at %.3f between %@ and %@ is %@", cosTheta, blendFactor, 
 			 NSStringFromCC3Quaternion(q1), NSStringFromCC3Quaternion(q2),
 			 NSStringFromCC3Quaternion(result));
@@ -373,14 +379,10 @@ CC3Vector CC3TriplePlaneIntersection(CC3Plane p1, CC3Plane p2, CC3Plane p3) {
 }
 
 // Deprecated function
-CC3Plane CC3PlaneFromPoints(CC3Vector v1, CC3Vector v2, CC3Vector v3) {
-	return CC3PlaneFromLocations(v1, v2, v3);
-}
+CC3Plane CC3PlaneFromPoints(CC3Vector v1, CC3Vector v2, CC3Vector v3) { return CC3PlaneFromLocations(v1, v2, v3); }
 
 // Deprecated function
-GLfloat CC3DistanceFromNormalizedPlane(CC3Plane p, CC3Vector v) {
-	return CC3DistanceFromPlane(v, p);
-}
+GLfloat CC3DistanceFromNormalizedPlane(CC3Plane p, CC3Vector v) { return CC3DistanceFromPlane(v, p); }
 
 
 #pragma mark -
@@ -425,25 +427,6 @@ CC3Sphere CC3SphereUnion(CC3Sphere s1, CC3Sphere s2) {
 	return rslt;
 }
 
-/**
- * Returns the coefficients of the quadratic equation that describes the points of
- * intersection between the specified ray and sphere.
- *
- * Given the equation for a sphere at the origin:  x*x + y*y + z*z = r*r, and the
- * equation for a ray in the same frame of reference: p = s + tv, where s is the
- * ray start, v is the ray direction, and p is a point on the ray, we can solve for
- * the intersection points of the ray and sphere. The result is a quadratic equation
- * in t: at*t + bt + c = 0, where: a = v*v, b = 2(s.v), and c = s*s - r*r.
- *
- * The a, b and c elements of the returned CC3Plane structure contain the a, b and c
- * coefficients of the quadratic equation, respectively. The d element of the returned
- * CC3Plane structure contains the discriminant of the quadratic equation (d = b*b - 4ac).
- *
- * The returned quadratic coefficients are not a plane.
- * The CC3Plane structure is simply used for convenience.
- *
- * Reference: Mathematics for 3D Game Programming and Computer Graphics, 3rd ed. book, by Eric Lengyel
- */ 
 CC3Plane CC3RaySphereIntersectionEquation(CC3Ray aRay, CC3Sphere aSphere) {
 	// The quadratic intersection equation assumes the sphere is at the origin,
 	// so translate the ray to the sphere's reference frame.
@@ -465,12 +448,12 @@ CC3Plane CC3RaySphereIntersectionEquation(CC3Ray aRay, CC3Sphere aSphere) {
 }
 
 BOOL CC3DoesRayIntersectSphere(CC3Ray aRay, CC3Sphere aSphere) {
-	// Intersection occurs if the discriminant, of the quadratic equation that
+	// Intersection occurs if the discriminant of the quadratic equation that
 	// describes the points of intersection between the ray and sphere, is not negative.
 	return CC3RaySphereIntersectionEquation(aRay, aSphere).d >= 0.0f;
 }
 
-CC3Vector CC3RayIntersectionOfSphere(CC3Ray aRay, CC3Sphere aSphere) {
+CC3Vector CC3RayIntersectionWithSphere(CC3Ray aRay, CC3Sphere aSphere) {
 	// Retrieve the quadratic equation that describes the points of interesection.
 	CC3Plane eqn = CC3RaySphereIntersectionEquation(aRay, aSphere);
 	if (eqn.d < 0.0f) return kCC3VectorNull;	// No intersection if discriminant is negative.
@@ -499,12 +482,29 @@ CC3Vector CC3RayIntersectionOfSphere(CC3Ray aRay, CC3Sphere aSphere) {
 	return kCC3VectorNull;
 }
 
+// Deprecated
+CC3Vector CC3RayIntersectionOfSphere(CC3Ray aRay, CC3Sphere aSphere) {
+	return CC3RayIntersectionWithSphere(aRay, aSphere);
+}
+
 
 #pragma mark -
 #pragma mark Miscellaneous extensions and functionality
 
-NSString* CC3EnsureAbsoluteFilePath(NSString* filePath) {
-	if(filePath.isAbsolutePath) return filePath;
-	return [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent: filePath];
+void CC3FlipVertically(GLubyte* rowMajorData, GLuint rowCount, GLuint bytesPerRow) {
+	if ( !rowMajorData ) return;		// If no data, nothing to flip!
+	
+	GLubyte tmpRow[bytesPerRow];
+	GLuint lastRowIdx = rowCount - 1;
+	GLuint halfRowCnt = rowCount / 2;
+	for (GLuint rowIdx = 0; rowIdx < halfRowCnt; rowIdx++) {
+		GLubyte* lowerRow = rowMajorData + (bytesPerRow * rowIdx);
+		GLubyte* upperRow = rowMajorData + (bytesPerRow * (lastRowIdx - rowIdx));
+		memcpy(tmpRow, upperRow, bytesPerRow);
+		memcpy(upperRow, lowerRow, bytesPerRow);
+		memcpy(lowerRow, tmpRow, bytesPerRow);
+		LogTrace(@"Swapped %u bytes in %p between row %u at %p and row %u at %p",
+				 bytesPerRow, rowMajorData, rowIdx, lowerRow, (lastRowIdx - rowIdx), upperRow);
+	}
 }
 

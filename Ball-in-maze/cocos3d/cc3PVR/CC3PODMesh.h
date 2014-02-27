@@ -1,9 +1,9 @@
 /*
  * CC3PODMesh.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,15 +30,15 @@
 /** @file */	// Doxygen marker
 
 
-#import "CC3VertexArrayMesh.h"
+#import "CC3Mesh.h"
 #import "CC3IdentifiablePODExtensions.h"
 
 
 #pragma mark -
-#pragma mark CC3VertexArrayMesh extensions for PVR POD data
+#pragma mark CC3Mesh extensions for PVR POD data
 
-/** Extensions to CC3VertexArrayMesh to support PVR POD data. */
-@interface CC3VertexArrayMesh (PVRPOD)
+/** Extensions to CC3Mesh to support PVR POD data. */
+@interface CC3Mesh (PVRPOD)
 
 /**
  * Allocates and initializes an autoreleased instance from the data of
@@ -52,9 +52,9 @@
 #pragma mark -
 #pragma mark CC3PODMesh
 
-/** A CC3VertexArrayMesh whose content originates from POD resource data. */
-@interface CC3PODMesh : CC3VertexArrayMesh {
-	int podIndex;
+/** A CC3Mesh whose content originates from POD resource data. */
+@interface CC3PODMesh : CC3Mesh {
+	GLint _podIndex;
 }
 
 @end

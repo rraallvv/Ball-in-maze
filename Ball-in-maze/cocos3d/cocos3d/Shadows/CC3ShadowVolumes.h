@@ -3,7 +3,7 @@
  *
  * cocos3d 0.6.3
  * Author: Bill Hollings
- * Copyright (c) 2011-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2011-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -33,9 +33,10 @@
 #import "CC3VertexSkinning.h"
 #import "CC3Light.h"
 #import "CC3Billboard.h"
+#import "CC3UtilityMeshNodes.h"
 
 /** The suggested default shadow volume vertex offset factor. */
-static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001;
+static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001f;
 
 
 #pragma mark -
@@ -65,21 +66,21 @@ static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001;
  * Shadow volumes use a stencil buffer to determine the areas that require shading. The stencil
  * buffer must be allocated within the EAGLView when the view is created and initialized.
  * On the iOS, the sencil buffer is combined with the depth buffer. You create a stencil buffer by
- * passing the value GL_DEPTH24_STENCIL8_OES as the depth format argument in the CC3EAGLView method
+ * passing the value GL_DEPTH24_STENCIL8 as the depth format argument in the CC3GLView method
  * viewWithFrame:pixelFormat:depthFormat:preserveBackbuffer:sharegroup:multiSampling:numberOfSamples:.
  */
 @interface CC3ShadowVolumeMeshNode : CC3MeshNode <CC3ShadowProtocol> {
-	CC3Light* light;
-	GLushort shadowLagFactor;
-	GLushort shadowLagCount;
-	GLfloat shadowVolumeVertexOffsetFactor;
-	GLfloat shadowExpansionLimitFactor;
-	BOOL isShadowDirty : 1;
-	BOOL shouldDrawTerminator : 1;
-	BOOL shouldShadowFrontFaces : 1;
-	BOOL shouldShadowBackFaces : 1;
-	BOOL useDepthFailAlgorithm : 1;
-	BOOL shouldAddEndCapsOnlyWhenNeeded : 1;
+	CC3Light* __unsafe_unretained _light;
+	GLushort _shadowLagFactor;
+	GLushort _shadowLagCount;
+	GLfloat _shadowVolumeVertexOffsetFactor;
+	GLfloat _shadowExpansionLimitFactor;
+	BOOL _isShadowDirty : 1;
+	BOOL _shouldDrawTerminator : 1;
+	BOOL _shouldShadowFrontFaces : 1;
+	BOOL _shouldShadowBackFaces : 1;
+	BOOL _useDepthFailAlgorithm : 1;
+	BOOL _shouldAddEndCapsOnlyWhenNeeded : 1;
 }
 
 /**
@@ -113,13 +114,11 @@ static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001;
 /**
  * The mesh node used to paint the shadows cast by shadow volumes.
  *
- * Shadow volumes are used to define a stencil that is then used to draw dark
- * areas onto the viewport where mesh nodes are casting shadows. This painter
- * is used to draw those dark areas where the stencil indicates.
+ * Shadow volumes are used to define a stencil that is then used to draw dark areas onto the
+ * viewport in clip-space, where scene mesh nodes are casting shadows. This painter is used
+ * to draw those dark areas where the stencil indicates.
  */
-@interface CC3StencilledShadowPainterNode : CC3MeshNode <CC3ShadowProtocol> {
-	CC3Light* light;
-}
+@interface CC3StencilledShadowPainterNode : CC3ClipSpaceNode <CC3ShadowProtocol>
 @end
 
 
@@ -188,7 +187,7 @@ static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001;
  * Shadow volumes use a stencil buffer to determine the areas that require shading. The stencil
  * buffer must be allocated within the EAGLView when the view is created and initialized.
  * On the iOS, the sencil buffer is combined with the depth buffer. You create a stencil buffer by
- * passing the value GL_DEPTH24_STENCIL8_OES as the depth format argument in the CC3EAGLView method
+ * passing the value GL_DEPTH24_STENCIL8 as the depth format argument in the CC3GLView method
  * viewWithFrame:pixelFormat:depthFormat:preserveBackbuffer:sharegroup:multiSampling:numberOfSamples:.
  *
  * It is safe to invoke this method more than once with the same, or a different light. Only one
@@ -212,8 +211,8 @@ static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001;
  *
  * If you know that the mesh nodes and light are fixed, after the first update to the scene,
  * you can save memory by retrieving the vertex locations, indices, weights and matrix indices
- * vertex arrays, set the shouldReleaseRedundantData property on each to YES, and invoke the
- * releaseRedundantData method on each.
+ * vertex arrays, set the shouldReleaseRedundantContent property on each to YES, and invoke the
+ * releaseRedundantContent method on each.
  *
  * The internal management of shadow volumes requires intense access to the faces of the mesh
  * that is casting the shadow. For this reason, when a shadow volume is added to a mesh node, the
@@ -253,8 +252,8 @@ static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001;
  * shouldCacheFaces property to NO, and will not automatically free up
  * vertex data that was retained to build the shadow volumes. If you no
  * longer need the face or vertex data to be cached, you should explicitly
- * set the shouldCacheFaces property to NO, and the shouldReleaseRedundantData
- * property to YES, and invoke the releaseRedundantData method.
+ * set the shouldCacheFaces property to NO, and the shouldReleaseRedundantContent
+ * property to YES, and invoke the releaseRedundantContent method.
  *
  * It is safe to invoke this method more than once, or even if no shadow
  * volumes have previously been added.
@@ -280,7 +279,7 @@ static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001;
  * and does not recurse below this level. As such, this method only has meaning
  * when invoked on a mesh node.
  */
-@property(nonatomic, readonly) CCArray* shadowVolumes;
+@property(nonatomic, readonly) NSArray* shadowVolumes;
 
 /**
  * Returns the shadow volume that was added to this node for the specified light,
@@ -637,6 +636,23 @@ static const GLfloat kCC3DefaultShadowVolumeVertexOffsetFactor = 0.001;
  * the descendants of this node.
  */
 @property(nonatomic, assign) BOOL shouldShadowBackFaces;
+
+/** 
+ * Prewarms the meshes of all descendant mesh nodes to prepare for shadow volumes.
+ *
+ * Shadow volumes make very heavy use of many mesh face characteristics. This method
+ * ensures that the faces have been populated for each descendant mesh node.
+ *
+ * This method is invoked automatically when a shadow volume is added to a mesh node.
+ * Usually, the application should never need to invoke this method directly.
+ */
+-(void) prewarmForShadowVolumes;
+
+/**
+ * If this node is a shadow volume, returns whether the shadow cast by the shadow
+ * volume will be visible. Returns NO if this node is not a shadow volume node.
+ */
+-(BOOL) isShadowVisible;
 
 @end
 

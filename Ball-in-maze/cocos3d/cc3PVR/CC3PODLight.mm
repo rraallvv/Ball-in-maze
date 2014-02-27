@@ -1,9 +1,9 @@
 /*
  * CC3PODLight.mm
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -39,34 +39,37 @@ extern "C" {
 
 @implementation CC3PODLight
 
--(int) podIndex { return podIndex; }
+-(GLint) podIndex { return _podIndex; }
 
--(void) setPodIndex: (int) aPODIndex { podIndex = aPODIndex; }
+-(void) setPodIndex: (GLint) aPODIndex { _podIndex = aPODIndex; }
 
--(int) podContentIndex { return podContentIndex; }
+-(GLint) podContentIndex { return _podContentIndex; }
 
--(void) setPodContentIndex: (int) aPODIndex { podContentIndex = aPODIndex; }
+-(void) setPodContentIndex: (GLint) aPODIndex { _podContentIndex = aPODIndex; }
 
--(int) podParentIndex { return podParentIndex; }
+-(GLint) podParentIndex { return _podParentIndex; }
 
--(void) setPodParentIndex: (int) aPODIndex { podParentIndex = aPODIndex; }
+-(void) setPodParentIndex: (GLint) aPODIndex { _podParentIndex = aPODIndex; }
 
--(int) podTargetIndex { return podTargetIndex; }
+-(GLint) podTargetIndex { return _podTargetIndex; }
 
--(void) setPodTargetIndex: (int) aPODIndex { podTargetIndex = aPODIndex; }
+-(void) setPodTargetIndex: (GLint) aPODIndex { _podTargetIndex = aPODIndex; }
 
--(id) initAtIndex: (int) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
+-(id) initAtIndex: (GLint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
 	if ( (self = [super initAtIndex: aPODIndex fromPODResource: aPODRez]) ) {
 		// Get the light content
 		if (self.podContentIndex >= 0) {
 			SPODLight* psl = (SPODLight*)[aPODRez lightPODStructAtIndex: self.podContentIndex];
 			LogRez(@"Setting %@ parameters from %@", [self class], NSStringFromSPODLight(psl));
 			self.podTargetIndex = psl->nIdxTarget;
-			self.diffuseColor = CCC4FMake(psl->pfColour[0], psl->pfColour[1], psl->pfColour[2], 1.0);
+
 			self.ambientColor = kCC3DefaultLightColorAmbient;
+			self.diffuseColor = ccc4f(psl->pfColour[0], psl->pfColour[1], psl->pfColour[2], 1.0);
 			self.specularColor = kCC3DefaultLightColorSpecular;
-//			self.ambientColor = kCCC4FBlack;
-//			self.specularColor = kCCC4FBlack;
+
+			self.attenuation = CC3AttenuationCoefficientsMake(psl->fConstantAttenuation,
+															  psl->fLinearAttenuation,
+															  psl->fQuadraticAttenuation);
 			switch (psl->eType) {
 				case ePODDirectional:
 					self.isDirectionalOnly = YES;
@@ -76,7 +79,8 @@ extern "C" {
 					break;
 				case ePODSpot:
 					self.isDirectionalOnly = NO;
-					self.spotCutoffAngle = RadiansToDegrees(psl->fFalloffAngle);
+					self.spotCutoffAngle = CC3RadToDeg(psl->fFalloffAngle);
+					self.spotExponent = psl->fFalloffExponent;
 					break;
 				default:
 					break;
@@ -95,14 +99,20 @@ extern "C" {
 -(void) populateFrom: (CC3PODLight*) another {
 	[super populateFrom: another];
 
-	podIndex = another.podIndex;
-	podContentIndex = another.podContentIndex;
-	podParentIndex = another.podParentIndex;
-	podTargetIndex = another.podTargetIndex;
+	_podIndex = another.podIndex;
+	_podContentIndex = another.podContentIndex;
+	_podParentIndex = another.podParentIndex;
+	_podTargetIndex = another.podTargetIndex;
+}
+
+// The direction of a light in a POD file is taken from the transform of the up direction!
+-(CC3Vector4) globalHomogeneousPosition {
+	if (self.isDirectionalOnly) return CC3Vector4FromCC3Vector(self.globalUpDirection, 0.0f);
+	return super.globalHomogeneousPosition;
 }
 
 -(NSString*) description {
-	return [NSString stringWithFormat: @"%@ (POD index: %i)", [super description], podIndex];
+	return [NSString stringWithFormat: @"%@ (POD index: %i)", [super description], _podIndex];
 }
 
 @end

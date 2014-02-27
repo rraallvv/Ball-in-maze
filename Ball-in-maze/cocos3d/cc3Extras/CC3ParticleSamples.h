@@ -1,9 +1,9 @@
 /*
  * CC3ParticleSamples.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -79,8 +79,8 @@
  * minParticleLifeSpan and maxParticleLifeSpan properties of this navigator.
  */
 @interface CC3RandomMortalParticleNavigator : CC3ParticleNavigator {
-	ccTime minParticleLifeSpan;
-	ccTime maxParticleLifeSpan;
+	ccTime _minParticleLifeSpan;
+	ccTime _maxParticleLifeSpan;
 }
 
 /**
@@ -198,12 +198,12 @@
  * wide the spray will be, and you can set a range of speeds for the particles as they leave the emitter.
  */
 @interface CC3HoseParticleNavigator : CC3RandomMortalParticleNavigator <CC3NodeTransformListenerProtocol> {
-	CC3Node* nozzle;
-	CC3Matrix* nozzleMatrix;
-	CGSize nozzleShape;
-	GLfloat minParticleSpeed;
-	GLfloat maxParticleSpeed;
-	BOOL shouldPrecalculateNozzleTangents;
+	CC3Node* _nozzle;
+	CC3Matrix* _nozzleMatrix;
+	CGSize _nozzleShape;
+	GLfloat _minParticleSpeed;
+	GLfloat _maxParticleSpeed;
+	BOOL _shouldPrecalculateNozzleTangents : 1;
 }
 
 /**
@@ -229,7 +229,7 @@
  *
  * You can also set the nozzle to any other CC3Node instance in the scene by setting this property. 
  */
-@property(nonatomic, retain) CC3Node* nozzle;
+@property(nonatomic, strong) CC3Node* nozzle;
 
 /**
  * Indicates the angle of dispersion of the spray from the nozzle. This is specified as both a
@@ -331,10 +331,10 @@
  * each particle from the local coordinates of the nozzle to the local coordinates of the emitter.
  *
  * If the nozzle has been assigned a different parent than the emitter, this matrix is recalculated
- * during each update by combining the transformMatrix of the nozzle and the transformMatrixInverted
+ * during each update by combining the globalTransformMatrix of the nozzle and the globalTransformMatrixInverted
  * of the emitter.
  */
-@property(nonatomic, retain, readonly) CC3Matrix* nozzleMatrix;
+@property(nonatomic, strong, readonly) CC3Matrix* nozzleMatrix;
 
 @end
 

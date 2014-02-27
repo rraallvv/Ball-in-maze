@@ -1,9 +1,9 @@
 /*
  * CC3Light.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -33,38 +33,14 @@
 #import "CC3Camera.h"
 #import "CC3ShadowVolumes.h"
 #import "CC3Scene.h"
-#import "CC3OpenGLES11Engine.h"
 #import "CC3CC2Extensions.h"
+#import	"CC3ProjectionMatrix.h"
 
 
 #pragma mark CC3Light 
 
 @interface CC3Node (TemplateMethods)
--(void) updateGlobalLocation;
--(void) updateGlobalScale;
 -(void) transformMatrixChanged;
-@end
-
-@interface CC3Camera (TemplateMethods)
--(void) loadProjectionMatrix;
--(void) loadModelviewMatrix;
-@end
-
-@interface CC3Light (TemplateMethods)
--(void) applyLocation;
--(void) applyDirection;
--(void) applyAttenuation;
--(void) applyColor;
--(GLuint) nextLightIndex;
--(void) returnLightIndex: (GLuint) aLightIndex;
-+(BOOL*) lightIndexPool;
--(void) cleanupShadows;
--(void) configureStencilParameters: (CC3NodeDrawingVisitor*) visitor;
--(void) paintStenciledShadowsWithVisitor: (CC3NodeDrawingVisitor*) visitor;
--(void) cleanupStencilParameters: (CC3NodeDrawingVisitor*) visitor;
--(void) checkShadowCastingVolume;
--(void) checkCameraShadowVolume;
--(void) checkStencilledShadowPainter;
 @end
 
 @interface CC3LightCameraBridgeVolume (TemplateMethods)
@@ -74,48 +50,57 @@
 
 @implementation CC3Light
 
-@synthesize lightIndex, shouldCopyLightIndex;
-@synthesize shadows, shadowCastingVolume, cameraShadowVolume;
-@synthesize stencilledShadowPainter, shadowIntensityFactor;
-@synthesize ambientColor, diffuseColor, specularColor;
-@synthesize spotExponent, spotCutoffAngle, isDirectionalOnly;
-@synthesize homogeneousLocation, attenuationCoefficients;
+@synthesize lightIndex=_lightIndex, shouldCopyLightIndex=_shouldCopyLightIndex;
+@synthesize ambientColor=_ambientColor, diffuseColor=_diffuseColor, specularColor=_specularColor;
+@synthesize spotExponent=_spotExponent, spotCutoffAngle=_spotCutoffAngle;
+@synthesize attenuation=_attenuation, isDirectionalOnly=_isDirectionalOnly;
+@synthesize shadowCastingVolume=_shadowCastingVolume, cameraShadowVolume=_cameraShadowVolume;
+@synthesize shadows=_shadows, shadowIntensityFactor=_shadowIntensityFactor;
+@synthesize stencilledShadowPainter=_stencilledShadowPainter;
 
 -(void) dealloc {
 	[self cleanupShadows];		// Includes releasing the shadows array, camera shadow volume & shadow painter
-	[gles11Light release];
-	[self returnLightIndex: lightIndex];
-	[super dealloc];
+	[self returnLightIndex: _lightIndex];
 }
 
 -(BOOL) isLight { return YES; }
+
+// Overridden to take into consideration the isDirectionalOnly property
+-(CC3Vector4) globalHomogeneousPosition {
+	GLfloat w = self.isDirectionalOnly ? 0.0f : 1.0f;
+	return CC3Vector4FromCC3Vector(self.globalLocation, w);
+}
 
 /** Overridden to return NO so that the forwardDirection aligns with the negative-Z-axis. */
 -(BOOL) shouldReverseForwardDirection { return NO; }
 
 // Clamp to valid range.
--(void) setSpotExponent: (GLfloat) spotExp {
-	spotExponent = CLAMP(spotExp, 0.0f, 128.0f);
-}
+-(void) setSpotExponent: (GLfloat) spotExp { _spotExponent = CLAMP(spotExp, 0.0f, 128.0f); }
 
 -(void) setAmbientColor: (ccColor4F) aColor {
-	ambientColor = aColor;
+	_ambientColor = aColor;
 	[self.scene updateRelativeLightIntensities];
 }
 
 -(void) setDiffuseColor: (ccColor4F) aColor {
-	diffuseColor = aColor;
+	_diffuseColor = aColor;
 	[self.scene updateRelativeLightIntensities];
 }
 
 -(void) setShadowIntensityFactor: (GLfloat) shdwIntFactor {
-	shadowIntensityFactor = shdwIntFactor;
+	_shadowIntensityFactor = shdwIntFactor;
 	[self.scene updateRelativeLightIntensities];
 }
 
 -(void) setVisible: (BOOL) isVisible {
 	super.visible = isVisible;
 	[self.scene updateRelativeLightIntensities];
+}
+
+// Deprecated property
+-(CC3AttenuationCoefficients) attenuationCoefficients { return self.attenuation; }
+-(void) setAttenuationCoefficients: (CC3AttenuationCoefficients) attenuationCoefficients {
+	self.attenuation = attenuationCoefficients;
 }
 
 // Keep the compiler happy with the additional declaration
@@ -127,25 +112,25 @@
 #pragma mark CCRGBAProtocol support
 
 /** Returns diffuse color. */
--(ccColor3B) color { return CCC3BFromCCC4F(diffuseColor); }
+-(ccColor3B) color { return CCC3BFromCCC4F(_diffuseColor); }
 
 // Set both diffuse and ambient colors, retaining the alpha of each
 -(void) setColor: (ccColor3B) color {
-	self.ambientColor = CCC4FFromColorAndOpacity(color, ambientColor.a);
-	self.diffuseColor = CCC4FFromColorAndOpacity(color, diffuseColor.a);
+	self.ambientColor = CCC4FFromColorAndOpacity(color, _ambientColor.a);
+	self.diffuseColor = CCC4FFromColorAndOpacity(color, _diffuseColor.a);
 
 	super.color = color;
 }
 
 /** Returns diffuse alpha. */
--(GLubyte) opacity { return CCColorByteFromFloat(diffuseColor.a); }
+-(GLubyte) opacity { return CCColorByteFromFloat(_diffuseColor.a); }
 
 /** Set opacity of all colors, retaining the colors of each. */
 -(void) setOpacity: (GLubyte) opacity {
 	GLfloat af = CCColorFloatFromByte(opacity);
-	ambientColor.a = af;
-	diffuseColor.a = af;
-	specularColor.a = af;
+	_ambientColor.a = af;
+	_diffuseColor.a = af;
+	_specularColor.a = af;
 
 	super.opacity = opacity;
 }
@@ -154,27 +139,23 @@
 
 -(id) initWithTag: (GLuint) aTag withName: (NSString*) aName withLightIndex: (GLuint) ltIndx {
 	if ( (self = [super initWithTag: aTag withName: aName]) ) {
-		if (ltIndx == UINT_MAX) {		// All the lights have been used already.
-			[self release];
-			return nil;
-		}
-		lightIndex = ltIndx;
-		gles11Light = [[[CC3OpenGLES11Engine engine].lighting lightAt: lightIndex] retain];
-		shadows = nil;
-		shadowCastingVolume = nil;
-		cameraShadowVolume = nil;
-		stencilledShadowPainter = nil;
-		homogeneousLocation = kCC3Vector4Zero;
-		ambientColor = kCC3DefaultLightColorAmbient;
-		diffuseColor = kCC3DefaultLightColorDiffuse;
-		specularColor = kCC3DefaultLightColorSpecular;
-		spotExponent = 0;
-		spotCutoffAngle = kCC3SpotCutoffNone;
-		attenuationCoefficients = kCC3DefaultLightAttenuationCoefficients;
-		shadowIntensityFactor = 1.0;
-		isDirectionalOnly = YES;
-		shouldCopyLightIndex = NO;
-		shouldCastShadowsWhenInvisible = NO;
+		if (ltIndx == UINT_MAX) return nil;		// All the lights have been used already.
+			
+		_lightIndex = ltIndx;
+		_shadows = nil;
+		_shadowCastingVolume = nil;
+		_cameraShadowVolume = nil;
+		_stencilledShadowPainter = nil;
+		_ambientColor = kCC3DefaultLightColorAmbient;
+		_diffuseColor = kCC3DefaultLightColorDiffuse;
+		_specularColor = kCC3DefaultLightColorSpecular;
+		_spotExponent = 0;
+		_spotCutoffAngle = kCC3SpotCutoffNone;
+		_attenuation = kCC3DefaultLightAttenuationCoefficients;
+		_shadowIntensityFactor = 1.0;
+		_isDirectionalOnly = YES;
+		_shouldCopyLightIndex = NO;
+		_shouldCastShadowsWhenInvisible = NO;
 	}
 	return self;
 }
@@ -196,23 +177,23 @@
 }
 
 +(id) nodeWithLightIndex: (GLuint) ltIndx {
-	return [[[self alloc] initWithLightIndex: ltIndx] autorelease];
+	return [[self alloc] initWithLightIndex: ltIndx];
 }
 
 +(id) lightWithLightIndex: (GLuint) ltIndx {
-	return [[[self alloc] initWithLightIndex: ltIndx] autorelease];
+	return [[self alloc] initWithLightIndex: ltIndx];
 }
 
 +(id) lightWithTag: (GLuint) aTag withLightIndex: (GLuint) ltIndx {
-	return [[[self alloc] initWithTag: aTag withLightIndex: ltIndx] autorelease];
+	return [[self alloc] initWithTag: aTag withLightIndex: ltIndx];
 }
 
 +(id) lightWithName: (NSString*) aName withLightIndex: (GLuint) ltIndx {
-	return [[[self alloc] initWithName: aName withLightIndex: ltIndx] autorelease];
+	return [[self alloc] initWithName: aName withLightIndex: ltIndx];
 }
 
 +(id) lightWithTag: (GLuint) aTag withName: (NSString*) aName withLightIndex: (GLuint) ltIndx {
-	return [[[self alloc] initWithTag: aTag withName: aName withLightIndex: ltIndx] autorelease];
+	return [[self alloc] initWithTag: aTag withName: aName withLightIndex: ltIndx];
 }
 
 // Keep the compiler happy with additional declaration for documentation purposes
@@ -229,17 +210,16 @@
 	// Shadows are not copied, because each shadow connects
 	// one-and-only-one shadow casting node to one-and-only-one light.
 	
-	homogeneousLocation = another.homogeneousLocation;
-	ambientColor = another.ambientColor;
-	diffuseColor = another.diffuseColor;
-	specularColor = another.specularColor;
-	spotExponent = another.spotExponent;
-	spotCutoffAngle = another.spotCutoffAngle;
-	attenuationCoefficients = another.attenuationCoefficients;
-	shadowIntensityFactor = another.shadowIntensityFactor;
-	isDirectionalOnly = another.isDirectionalOnly;
-	shouldCopyLightIndex = another.shouldCopyLightIndex;
-	shouldCastShadowsWhenInvisible = another.shouldCastShadowsWhenInvisible;
+	_ambientColor = another.ambientColor;
+	_diffuseColor = another.diffuseColor;
+	_specularColor = another.specularColor;
+	_spotExponent = another.spotExponent;
+	_spotCutoffAngle = another.spotCutoffAngle;
+	_attenuation = another.attenuation;
+	_shadowIntensityFactor = another.shadowIntensityFactor;
+	_isDirectionalOnly = another.isDirectionalOnly;
+	_shouldCopyLightIndex = another.shouldCopyLightIndex;
+	_shouldCastShadowsWhenInvisible = another.shouldCastShadowsWhenInvisible;
 }
 
 /**
@@ -248,75 +228,68 @@
  * will be assigned either the same lightIndex as this node, or a new lightIndex value.
  */
 -(id) copyWithZone: (NSZone*) zone withName: (NSString*) aName asClass: (Class) aClass {
-	GLuint ltIndx = shouldCopyLightIndex ? lightIndex : [self nextLightIndex];
+	GLuint ltIndx = _shouldCopyLightIndex ? _lightIndex : [self nextLightIndex];
 	CC3Light* aCopy = [[aClass allocWithZone: zone] initWithName: aName withLightIndex: ltIndx];
 	[aCopy populateFrom: self];
 	return aCopy;
 }
 
 -(NSString*) description {
-	return [NSString stringWithFormat: @"%@ light index: %u", [super description], lightIndex];
+	return [NSString stringWithFormat: @"%@ light index: %u", [super description], _lightIndex];
 }
 
 -(NSString*) fullDescription {
-	return [NSString stringWithFormat: @"%@, homoLoc: %@, ambient: %@, diffuse: %@, specular: %@, spotAngle: %.2f, attenuation: %@",
-			[super fullDescription], NSStringFromCC3Vector4(homogeneousLocation), NSStringFromCCC4F(ambientColor),
-			NSStringFromCCC4F(diffuseColor), NSStringFromCCC4F(specularColor), spotCutoffAngle,
-			NSStringFromCC3AttenuationCoefficients(attenuationCoefficients)];
+	return [NSString stringWithFormat: @"%@, (%@), ambient: %@, diffuse: %@, specular: %@, spotAngle: %.2f, spotExponent: %.6f, attenuation: %@",
+			[super fullDescription], (self.isDirectionalOnly ? @"directional" : @"positional"),
+			NSStringFromCCC4F(_ambientColor), NSStringFromCCC4F(_diffuseColor),
+			NSStringFromCCC4F(_specularColor), _spotCutoffAngle, _spotExponent,
+			NSStringFromCC3AttenuationCoefficients(_attenuation)];
 }
 
 /** Scaling does not apply to lights. */
--(void) applyScaling {
-	[self updateGlobalScale];
-}
+-(void) applyScaling {}
 
 /**
- * Overridden to determine the overall absolute location (taking into consideration
- * ancestor location) in the 4D homogeneous coordinates used by GL lights. The w component
- * of the homogeneous location is determined by the value of the isDirectionalOnly property.
+ * Scaling does not apply to lights. Return the globalScale of the parent node,
+ * or unit scaling if no parent.
  */
--(void) updateGlobalLocation {
-	[super updateGlobalLocation];
-	GLfloat w = isDirectionalOnly ? 0.0 : 1.0;
-	homogeneousLocation = CC3Vector4FromCC3Vector(globalLocation, w);
-}
-
-/**
- * Scaling does not apply to lights. Sets the globalScale to that of the parent node,
- * or to unit scaling if no parent.
- */
--(void) updateGlobalScale {
-	globalScale = parent ? parent.globalScale : kCC3VectorUnitCube;
-}
+-(CC3Vector) globalScale { return _parent ? _parent.globalScale : kCC3VectorUnitCube; }
 
 /** Overridden to update the camera shadow frustum with the global location of this light */
 -(void) transformMatrixChanged {
 	[super transformMatrixChanged];
-	[shadowCastingVolume markDirty];
-	[cameraShadowVolume markDirty];
+	[_shadowCastingVolume markDirty];
+	[_cameraShadowVolume markDirty];
 }
 
 
 #pragma mark Drawing
 
--(void) turnOn {
+-(void) turnOnWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	CC3OpenGL* gl = visitor.gl;
 	if (self.visible) {
 		LogTrace(@"Turning on %@", self);
-		[gles11Light.light enable];
-		[self applyLocation];
-		[self applyDirection];
-		[self applyAttenuation];
-		[self applyColor];
+		[gl enableLight: YES at: _lightIndex];
+		[self applyPositionWithVisitor: visitor];
+		[self applyDirectionWithVisitor: visitor];
+		[self applyAttenuationWithVisitor: visitor];
+		[self applyColorWithVisitor: visitor];
 	} else {
-		[gles11Light.light disable];
+		[gl enableLight: NO at: _lightIndex];
 	}
+}
+
+-(void) turnOffWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	[visitor.gl enableLight: NO at: _lightIndex];
 }
 
 /**
  * Template method that sets the position of this light in the GL engine to the value of
- * the homogeneousLocation property of this node.
+ * the globalHomogeneousPosition property of this node.
  */	
--(void) applyLocation { gles11Light.position.value = homogeneousLocation; }
+-(void) applyPositionWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	[visitor.gl setLightPosition: self.globalHomogeneousPosition at: _lightIndex];
+}
 
 /**
  * Template method that sets the spot direction, spot exponent, and spot cutoff angle of this light
@@ -325,26 +298,23 @@
  * been specified and less than 90 degrees, otherwise the light is treated as omnidirectional.
  * OpenGL ES only supports angles less than 90 degrees, so anything above is treated as omnidirectional.
  */
--(void) applyDirection {
-	if (spotCutoffAngle <= 90.0f) {
-		gles11Light.spotCutoffAngle.value = spotCutoffAngle;
-		gles11Light.spotDirection.value = self.globalForwardDirection;
-		gles11Light.spotExponent.value = spotExponent;
+-(void) applyDirectionWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	CC3OpenGL* gl = visitor.gl;
+	if (_spotCutoffAngle <= 90.0f) {
+		[gl setSpotlightDirection: self.globalForwardDirection at: _lightIndex];
+		[gl setSpotlightCutoffAngle: _spotCutoffAngle at: _lightIndex];
+		[gl setSpotlightFadeExponent: _spotExponent at: _lightIndex];
 	} else {
-		gles11Light.spotCutoffAngle.value = kCC3SpotCutoffNone;
+		[gl setSpotlightCutoffAngle: kCC3SpotCutoffNone at: _lightIndex];
 	}
 }
 
 /**
  * Template method that sets the light intensity attenuation characteristics
- * in the GL engine from the attenuationCoefficients property of this light.
+ * in the GL engine from the attenuation property of this light.
  */
--(void) applyAttenuation {
-	if ( !isDirectionalOnly ) {
-		gles11Light.constantAttenuation.value = attenuationCoefficients.a;
-		gles11Light.linearAttenuation.value = attenuationCoefficients.b;
-		gles11Light.quadraticAttenuation.value = attenuationCoefficients.c;
-	}
+-(void) applyAttenuationWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	if ( !_isDirectionalOnly ) [visitor.gl setLightAttenuation: _attenuation at: _lightIndex];
 }
 
 /**
@@ -352,27 +322,41 @@
  * in the GL engine to the values of the ambientColor, diffuseColor and specularColor
  * properties of this node, respectively.
  */
--(void) applyColor {
-	gles11Light.ambientColor.value = ambientColor;
-	gles11Light.diffuseColor.value = diffuseColor;
-	gles11Light.specularColor.value = specularColor;
+-(void) applyColorWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	CC3OpenGL* gl = visitor.gl;
+	[gl setLightAmbientColor: _ambientColor at: _lightIndex];
+	[gl setLightDiffuseColor: _diffuseColor at: _lightIndex];
+	[gl setLightSpecularColor: _specularColor at: _lightIndex];
 }
 
 
 #pragma mark Shadows
 
--(BOOL) shouldCastShadowsWhenInvisible { return shouldCastShadowsWhenInvisible; }
+-(BOOL) shouldCastShadowsWhenInvisible { return _shouldCastShadowsWhenInvisible; }
 
 -(void) setShouldCastShadowsWhenInvisible: (BOOL) shouldCast {
-	shouldCastShadowsWhenInvisible = shouldCast;
+	_shouldCastShadowsWhenInvisible = shouldCast;
 	super.shouldCastShadowsWhenInvisible = shouldCast;
 }
 
+/**
+ * If this action is occuring on a background thread, and this node is already part of the
+ * scene being rendered, the operation is queued for execution on the rendering thread, to
+ * avoid the possibility of adding a shadow in the middle of a render iteration.
+ */
 -(void) addShadow: (id<CC3ShadowProtocol>) aShadowNode {
-	NSAssert(aShadowNode, @"Shadow cannot be nil");		// Don't add if child is nil
+	if ( !CC3OpenGL.sharedGL.isRenderingContext && self.scene )
+		[self addShadowFromBackgroundThread: aShadowNode];
+	else
+		[self addShadowNow: aShadowNode];
+}
+
+/** Adds the specified shadow to this light without queuing. */
+-(void) addShadowNow: (id<CC3ShadowProtocol>) aShadowNode {
+	CC3Assert(aShadowNode, @"Shadow cannot be nil");		// Don't add if child is nil
 	
-	if(!shadows) shadows = [[CCArray array] retain];
-	[shadows addObject: aShadowNode];
+	if(!_shadows) _shadows = [NSMutableArray array];
+	[_shadows addObject: aShadowNode];
 	aShadowNode.light = self;
 
 	[self addTransformListener: aShadowNode];	// Update the shadow when this light moves.
@@ -381,12 +365,29 @@
 	[self checkStencilledShadowPainter];		// Make sure we have the shadow painter
 }
 
+/**
+ * Invoked when a shadow is being added on a background thread, and this parent node is
+ * already part of the scene.
+ *
+ * Since the scene may be in the process of being rendered, the shadow is not added immediately.
+ * Instead, all GL activity on this thread is allowed to finish, to ensure all GL components of
+ * the shadow node are in place, and then an operation to add the specified shadow is queued to
+ * the thread that is performing rendering.
+ */
+-(void) addShadowFromBackgroundThread: (id<CC3ShadowProtocol>) aShadowNode {
+	[CC3OpenGL.sharedGL finish];
+	[CC3OpenGL.renderThread runBlockAsync: ^{ [self addShadowNow: aShadowNode]; } ];
+	
+	// A better design would be to use dispatch queues, but OSX typically
+	// renders using a DisplayLink thread instead of the main thread.
+//	dispatch_async(dispatch_get_main_queue(), ^{ [self addShadowNow: aShadowNode]; });
+}
+
 -(void) removeShadow: (id<CC3ShadowProtocol>) aShadowNode {
-	[shadows removeObjectIdenticalTo: aShadowNode];
+	[_shadows removeObjectIdenticalTo: aShadowNode];
 	aShadowNode.light = nil;					// So it can't call back here if I'm gone
-	if (shadows && shadows.count == 0) {
-		[shadows release];
-		shadows = nil;
+	if (_shadows && _shadows.count == 0) {
+		_shadows = nil;
 		[self checkShadowCastingVolume];		// Remove the shadow casting volume
 		[self checkCameraShadowVolume];			// Remove the camera shadow volume
 		[self checkStencilledShadowPainter];	// Remove the stencilled shadow painter
@@ -394,26 +395,20 @@
 	[self removeTransformListener: aShadowNode];
 }
 
--(BOOL) hasShadows { return shadows && shadows.count > 0; }
+-(BOOL) hasShadows { return _shadows && _shadows.count > 0; }
 
--(void) updateShadows {
-	for (id<CC3ShadowProtocol> sv in shadows) {
-		[sv updateShadow];
-	}
-}
+-(void) updateShadows { for (id<CC3ShadowProtocol> sv in _shadows) [sv updateShadow]; }
 
 /** Detaches old as camera listener, attaches new as camera listener, and attaches light. */
 -(void) setShadowCastingVolume: (CC3ShadowCastingVolume*) scVolume {
-	if (scVolume != shadowCastingVolume) {
+	if (scVolume == _shadowCastingVolume) return;
 
-		CC3Camera* cam = self.activeCamera;
-		[cam removeTransformListener: shadowCastingVolume];
-		[shadowCastingVolume release];
-
-		shadowCastingVolume = [scVolume retain];
-		shadowCastingVolume.light = self;
-		[cam addTransformListener: shadowCastingVolume];
-	}
+	CC3Camera* cam = self.activeCamera;
+	[cam removeTransformListener: _shadowCastingVolume];
+	
+	_shadowCastingVolume = scVolume;
+	_shadowCastingVolume.light = self;
+	[cam addTransformListener: _shadowCastingVolume];
 }
 
 /**
@@ -426,28 +421,25 @@
  * and remove the shadow casting volume.
  */
 -(void) checkShadowCastingVolume {
-	if (shadows) {
-		if (!shadowCastingVolume) {
+	if (_shadows) {
+		if (!_shadowCastingVolume)
 			self.shadowCastingVolume = [CC3ShadowCastingVolume boundingVolume];
-		}
 	} else {
-		[self.activeCamera removeTransformListener: shadowCastingVolume];
-		[shadowCastingVolume release];
-		shadowCastingVolume = nil;
+		[self.activeCamera removeTransformListener: _shadowCastingVolume];
+		_shadowCastingVolume = nil;
 	}
 }
 
 /** Detaches old as camera listener, attaches new as camera listener, and attaches light. */
 -(void) setCameraShadowVolume: (CC3CameraShadowVolume*) csVolume {
-	if (csVolume != cameraShadowVolume) {
+	if (csVolume != _cameraShadowVolume) {
 		
 		CC3Camera* cam = self.activeCamera;
-		[cam removeTransformListener: cameraShadowVolume];
-		[cameraShadowVolume release];
+		[cam removeTransformListener: _cameraShadowVolume];
 		
-		cameraShadowVolume = [csVolume retain];
-		cameraShadowVolume.light = self;
-		[cam addTransformListener: cameraShadowVolume];
+		_cameraShadowVolume = csVolume;
+		_cameraShadowVolume.light = self;
+		[cam addTransformListener: _cameraShadowVolume];
 	}
 }
 
@@ -460,15 +452,14 @@
  * and remove the camera shadow volume.
  */
 -(void) checkCameraShadowVolume {
-	if (shadows) {
-		if (!cameraShadowVolume) {
+	if (_shadows) {
+		if (!_cameraShadowVolume) {
 			self.cameraShadowVolume = [CC3CameraShadowVolume boundingVolume];
-			[self.activeCamera addTransformListener: cameraShadowVolume];
+			[self.activeCamera addTransformListener: _cameraShadowVolume];
 		}
 	} else {
-		[self.activeCamera removeTransformListener: cameraShadowVolume];
-		[cameraShadowVolume release];
-		cameraShadowVolume = nil;
+		[self.activeCamera removeTransformListener: _cameraShadowVolume];
+		_cameraShadowVolume = nil;
 	}
 }
 
@@ -479,92 +470,75 @@
  * of this light relative to the intensity of all other illumination in the scene.
  */
 -(void) checkStencilledShadowPainter {
-	if (shadows) {
-		if (!stencilledShadowPainter) {
-			self.stencilledShadowPainter = [CC3StencilledShadowPainterNode nodeWithName: @"SSP"];
-			self.stencilledShadowPainter.light = self;
+	if (_shadows) {
+		if (!_stencilledShadowPainter) {
+			self.stencilledShadowPainter = [CC3StencilledShadowPainterNode nodeWithColor: kCCC4FBlack];
 			[self.scene updateRelativeLightIntensities];	//  Must be done after the ivar is set.
 		}
-	} else {
-		[stencilledShadowPainter release];
-		stencilledShadowPainter = nil;
-	}
+	} else
+		_stencilledShadowPainter = nil;
 }
 
 -(void) updateRelativeIntensityFrom: (ccColor4F) totalLight {
-	if (stencilledShadowPainter) {
+	if (_stencilledShadowPainter) {
 		GLfloat dIntensity = CCC4FIntensity(self.diffuseColor);
 		GLfloat totIntensity = CCC4FIntensity(totalLight);
-		GLfloat shadowIntensity =  (dIntensity / totIntensity) * shadowIntensityFactor;
-		stencilledShadowPainter.opacity = CCColorByteFromFloat(shadowIntensity);
+		GLfloat shadowIntensity =  (dIntensity / totIntensity) * _shadowIntensityFactor;
+		_stencilledShadowPainter.opacity = CCColorByteFromFloat(shadowIntensity);
 		LogTrace(@"%@ updated shadow intensity to %u from light illumination %@ against total illumination %@ and shadow intensity factor %.3f",
-					  self, stencilledShadowPainter.opacity,
-					  NSStringFromCCC4F(self.diffuseColor), NSStringFromCCC4F(self.scene.totalIllumination), shadowIntensityFactor);
+					  self, _stencilledShadowPainter.opacity,
+					  NSStringFromCCC4F(self.diffuseColor), NSStringFromCCC4F(self.scene.totalIllumination), _shadowIntensityFactor);
 	}
 }
 
 // TODO - combine with other shadow techniques - how to make polymorphic?
 -(void) drawShadowsWithVisitor: (CC3NodeDrawingVisitor*) visitor {
-	if ( shadows && (self.visible || self.shouldCastShadowsWhenInvisible) ) {
-		LogTrace(@"%@ drawing %u shadows", self, shadows.count);
+	if (_shadows && (self.visible || self.shouldCastShadowsWhenInvisible) ) {
+		LogTrace(@"%@ drawing %u shadows", self, _shadows.count);
 		[self configureStencilParameters: visitor];
 		
-		for (CC3ShadowVolumeMeshNode* sv in shadows) {
-			[sv drawToStencilWithVisitor: visitor];
-		}
+		for (CC3ShadowVolumeMeshNode* sv in _shadows) [sv drawToStencilWithVisitor: visitor];
 		
 		[self paintStenciledShadowsWithVisitor: visitor];
 		[self cleanupStencilParameters: visitor];
 	}
 }
 
+/**
+ * Turns on stenciling and ensure the stencil buffer can be updated.
+ * Turns off writing to the color buffer, because the shadow volumes themselves are invisible.
+ */
 -(void) configureStencilParameters: (CC3NodeDrawingVisitor*) visitor {
-	CC3OpenGLES11Engine* gles11Engine = [CC3OpenGLES11Engine engine];
-	CC3OpenGLES11State* gles11State = gles11Engine.state;
-	
-	[gles11Engine.serverCapabilities.stencilTest enable];
-	gles11State.colorMask.fixedValue = ccc4(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-	[gles11State.stencilFunction applyFunction: GL_ALWAYS andReference: 0 andMask: ~0];
+	CC3OpenGL* gl = visitor.gl;
+	[gl enableStencilTest: YES];
+	gl.stencilMask = ~0;
+	gl.colorMask = ccc4(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+	[gl setStencilFunc: GL_ALWAYS reference: 0 mask: ~0];
 }
 
+/** Draws the clip-space rectangle on the screen, coloring only those pixels where the stencil is non-zero. */
 -(void) paintStenciledShadowsWithVisitor: (CC3NodeDrawingVisitor*) visitor {
-	CC3OpenGLES11Engine* gles11Engine = [CC3OpenGLES11Engine engine];
-	CC3OpenGLES11State* gles11State = gles11Engine.state;
-	CC3OpenGLES11Matrices* gles11Matrices = gles11Engine.matrices;
-	CC3OpenGLES11MatrixStack* gles11ProjMtx = gles11Matrices.projection;
-	CC3OpenGLES11MatrixStack* gles11MVMtx = gles11Matrices.modelview;
+	CC3OpenGL* gl = visitor.gl;
 	
 	// Turn color masking back on so that shadow will be painted on the scene.
 	// The depth mask will be turned on by the mesh node
-	gles11State.colorMask.fixedValue = ccc4(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	gl.colorMask = ccc4(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 	
 	// Set the stencil function so that only those pixels that have a non-zero
 	// value in the stencil (and that pass the depth test) will be painted.
-	[gles11State.stencilFunction applyFunction: GL_NOTEQUAL andReference: 0 andMask: ~0];
+	[gl setStencilFunc: GL_NOTEQUAL reference: 0 mask: ~0];
 	
-	// Clear any non-zero values from the stencil buffer as we paint the shadow.
-	// This saves having to make the effort to clear the stencil buffer on the next round.
-	[gles11State.stencilOperation applyStencilFail: GL_ZERO
-									  andDepthFail: GL_ZERO
-									  andDepthPass: GL_ZERO];
-	
-	// Set the projection and modelview matrices to identity to transform the simple
-	// rectangular stenciled shadow painter mesh so that it covers the full viewport.
-	[gles11ProjMtx identity];
-	[gles11MVMtx identity];
+	// Don't waste time updating the stencil buffer now.
+	gl.stencilMask = 0;
 	
 	// Paint the shadow to the screen. Only areas that have been marked as being
 	// in the stencil buffer as being in the shadow of this light will be shaded.
-	[visitor visit: stencilledShadowPainter];
-	
-	// Restore the projection and modelview matrices back to those of the camera
-	CC3Camera* cam = visitor.camera;
-	[cam loadModelviewMatrix];
-	[cam loadProjectionMatrix];
+	[visitor visit: _stencilledShadowPainter];
 }
 
+/** Turns stenciling back off. */
 -(void) cleanupStencilParameters: (CC3NodeDrawingVisitor*) visitor {
-	[[CC3OpenGLES11Engine engine].serverCapabilities.stencilTest disable];
+	[visitor.gl enableStencilTest: NO];
 }
 
 /**
@@ -572,11 +546,8 @@
  * shadow nodes from this scene, which also removes the shadows array.
  */
 -(void) cleanupShadows {
-	CCArray* myShadows = [shadows copy];
-	for (CC3Node* sv in myShadows) {
-		[sv remove];
-	}
-	[myShadows release];
+	NSArray* myShadows = [_shadows copy];
+	for (CC3Node* sv in myShadows) [sv remove];
 }
 
 
@@ -586,15 +557,9 @@
 // When a new instance is instantiated, it's lightIndex property is assigned from the pool
 // of indexes. When the instance is deallocated, its index is returned to the pool for use
 // by any subsequently instantiated lights.
-static BOOL* _lightIndexPool = NULL;
+static BOOL _lightIndexPool[32] = {NO};
 
-+(BOOL*) lightIndexPool {
-	if (!_lightIndexPool) {
-		GLint platformMaxLights = [CC3OpenGLES11Engine engine].platform.maxLights.value;
-		_lightIndexPool = calloc(platformMaxLights, sizeof(BOOL));
-	}
-	return _lightIndexPool;
-}
++(BOOL*) lightIndexPool { return _lightIndexPool; }
 
 // Indicates the staring index to use when instantiating new lights.
 static GLuint lightPoolStartIndex = 0;
@@ -605,7 +570,7 @@ static GLuint lightPoolStartIndex = 0;
  */
 -(GLuint) nextLightIndex {
 	BOOL* indexPool = [[self class] lightIndexPool];
-	GLint platformMaxLights = [CC3OpenGLES11Engine engine].platform.maxLights.value;
+	GLuint platformMaxLights = CC3OpenGL.sharedGL.maxNumberOfLights;
 	for (int lgtIdx = lightPoolStartIndex; lgtIdx < platformMaxLights; lgtIdx++) {
 		if (!indexPool[lgtIdx]) {
 			LogTrace(@"Allocating light index %u", lgtIdx);
@@ -613,7 +578,7 @@ static GLuint lightPoolStartIndex = 0;
 			return lgtIdx;
 		}
 	}
-	NSAssert1(NO, @"Too many lights. Only %u lights may be created.", platformMaxLights);
+	CC3Assert(NO, @"Too many lights. Only %u lights may be created.", platformMaxLights);
 	return UINT_MAX;
 }
 
@@ -622,33 +587,22 @@ static GLuint lightPoolStartIndex = 0;
 	LogTrace(@"Returning light index %u", aLightIndex);
 	BOOL* indexPool = [[self class] lightIndexPool];
 	indexPool[aLightIndex] = NO;
-	[gles11Light.light disable];
 }
 
 +(GLuint) lightCount {
 	GLuint count = 0;
 	BOOL* indexPool = [self lightIndexPool];
-	GLint platformMaxLights = [CC3OpenGLES11Engine engine].platform.maxLights.value;
-	for (int i = lightPoolStartIndex; i < platformMaxLights; i++) {
-		if (indexPool[i]) {
-			count++;
-		}
-	}
+	GLuint platformMaxLights = CC3OpenGL.sharedGL.maxNumberOfLights;
+	for (int i = lightPoolStartIndex; i < platformMaxLights; i++) if (indexPool[i]) count++;
 	return lightPoolStartIndex + count;
 }
 
-+(GLuint) lightPoolStartIndex {
-	return lightPoolStartIndex;
-}
++(GLuint) lightPoolStartIndex { return lightPoolStartIndex; }
 
-+(void) setLightPoolStartIndex: (GLuint) newStartIndex {
-	lightPoolStartIndex = newStartIndex;
-}
++(void) setLightPoolStartIndex: (GLuint) newStartIndex { lightPoolStartIndex = newStartIndex; }
 
-+(void) disableReservedLights {
-	for (int i = 0; i < lightPoolStartIndex; i++) {
-		[[[CC3OpenGLES11Engine engine].lighting lightAt: i].light disable];
-	}
++(void) disableReservedLightsWithVisitor: (CC3NodeDrawingVisitor*) visitor {
+	for (int ltIdx = 0; ltIdx < lightPoolStartIndex; ltIdx++) [visitor.gl enableLight: NO at: ltIdx];
 }
 
 @end
@@ -666,19 +620,13 @@ static GLuint lightPoolStartIndex = 0;
 
 @implementation CC3LightCameraBridgeVolume
 
--(void) dealloc {
-	light = nil;			// Not retained
-	cameraFrustum = nil;	// Not retained
-	[super dealloc];
-}
-
 // Included to satisfy compiler because property appears in interface for documentation purposes
 -(GLuint) vertexCount { return super.vertexCount; }
 
--(CC3Light*) light { return light; }
+-(CC3Light*) light { return _light; }
 
 -(void) setLight: (CC3Light*) aLight {
-	light = aLight;			// Not retained
+	_light = aLight;			// Not retained
 	[self markDirty];
 }
 
@@ -688,15 +636,14 @@ static GLuint lightPoolStartIndex = 0;
  * This could be a location or direction, depending on whether the
  * 4D homogeneous location has a definite location, or is directional.
  */
--(CC3Vector) lightPosition { return CC3VectorFromTruncatedCC3Vector4(light.homogeneousLocation); }
+-(CC3Vector) lightPosition { return _light.globalHomogeneousPosition.v; }
 
 
 #pragma mark Allocation and initialization
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		light = nil;
-		cameraFrustum = nil;
+		_light = nil;
 	}
 	return self;
 }
@@ -706,7 +653,7 @@ static GLuint lightPoolStartIndex = 0;
 -(void) populateFrom: (CC3LightCameraBridgeVolume*) another {
 	[super populateFrom: another];
 	
-	light = another.light;		// Not retained
+	_light = another.light;		// Not retained
 }
 
 
@@ -716,18 +663,9 @@ static GLuint lightPoolStartIndex = 0;
  * Callback indicating that the camera has been transformed.
  * Sets the camera frustum (in case the camera has changed), and marks this volume as dirty.
  */
--(void) nodeWasTransformed: (CC3Node*) aNode {
-	if (aNode.isCamera) {
-		LogTrace(@"Updating %@ from transform notification from %@", self, aNode.fullDescription);
-		cameraFrustum = ((CC3Camera*)aNode).frustum;
-		[self markDirty];
-	}
-}
+-(void) nodeWasTransformed: (CC3Node*) aNode { if (aNode.isCamera) [self markDirty]; }
 
-/** The camera was destroyed. Clear the cached camera frustum. */
--(void) nodeWasDestroyed: (CC3Node*) aNode {
-	if (aNode.isCamera) cameraFrustum = nil;
-}
+-(void) nodeWasDestroyed: (CC3Node*) aNode {}
 
 /**
  * Returns whether the light is located in front of the plane.
@@ -736,7 +674,7 @@ static GLuint lightPoolStartIndex = 0;
  * of the light, which magically works for both directional and positional lights.
  */
 -(BOOL) isLightInFrontOfPlane: (CC3Plane) aPlane {
-	return CC3Vector4IsInFrontOfPlane(light.homogeneousLocation, aPlane);
+	return CC3Vector4IsInFrontOfPlane(_light.globalHomogeneousPosition, aPlane);
 }
 
 
@@ -757,22 +695,22 @@ static GLuint lightPoolStartIndex = 0;
 
 -(CC3Plane*) planes {
 	[self updateIfNeeded];
-	return planes;
+	return _planes;
 }
 
 -(GLuint) planeCount {
 	[self updateIfNeeded];
-	return planeCount;
+	return _planeCount;
 }
 
 -(CC3Vector*) vertices {
 	[self updateIfNeeded];
-	return vertices;
+	return _vertices;
 }
 
 -(GLuint) vertexCount {
 	[self updateIfNeeded];
-	return vertexCount;
+	return _vertexCount;
 }
 
 /**
@@ -780,19 +718,18 @@ static GLuint lightPoolStartIndex = 0;
  * it is added to the array, and the vertexCount property is incremented.
  */
 -(void) addUniqueVertex: (CC3Vector) aLocation {
-	for (GLuint vtxIdx = 0; vtxIdx < vertexCount; vtxIdx++) {
-		if (CC3VectorsAreEqual(aLocation, vertices[vtxIdx])) return;
-	}
-	vertices[vertexCount++] = aLocation;
+	for (GLuint vtxIdx = 0; vtxIdx < _vertexCount; vtxIdx++)
+		if (CC3VectorsAreEqual(aLocation, _vertices[vtxIdx])) return;
+	_vertices[_vertexCount++] = aLocation;
 }
 
 /** Adds the specified plane to the planes array, and increments the planeCount property. */
--(void) addPlane: (CC3Plane) aPlane { planes[planeCount++] = aPlane; }
+-(void) addPlane: (CC3Plane) aPlane { _planes[_planeCount++] = aPlane; }
 
 -(NSString*) fullDescription {
 	NSMutableString* desc = [NSMutableString stringWithCapacity: 200];
 	[desc appendFormat: @"%@", self.description];
-	[desc appendFormat: @" from light at %@", NSStringFromCC3Vector4(light.homogeneousLocation)];
+	[desc appendFormat: @" from light at %@", NSStringFromCC3Vector4(_light.globalHomogeneousPosition)];
 	[self appendPlanesTo: desc];
 	[self appendVerticesTo: desc];
 	return desc;
@@ -803,7 +740,7 @@ static GLuint lightPoolStartIndex = 0;
 
 -(void) checkPlaneEdge: (CC3Plane) edgePlane start: (CC3Vector) v1 end:  (CC3Vector) v2 {
 	if ( [self isLightInFrontOfPlane: edgePlane] ) {
-		CC3Vector v3 = light.isDirectionalOnly
+		CC3Vector v3 = _light.isDirectionalOnly
 							? CC3VectorAdd(v2, self.lightPosition) 
 							: self.lightPosition;
 		[self addPlane: CC3PlaneFromLocations(v1, v2, v3)];
@@ -833,10 +770,10 @@ static GLuint lightPoolStartIndex = 0;
 
 -(void) buildPlanes {
 	
-	planeCount = 0;
-	vertexCount = 0;
+	_planeCount = 0;
+	_vertexCount = 0;
 	
-	CC3Frustum* cf = cameraFrustum;
+    CC3Frustum* cf = _light.activeCamera.frustum;
 	
 	[self checkPlane: cf.leftPlane
 			withEdge: cf.farPlane at: cf.farBottomLeft
@@ -874,9 +811,9 @@ static GLuint lightPoolStartIndex = 0;
 			withEdge: cf.leftPlane at: cf.farTopLeft
 			withEdge: cf.bottomPlane at: cf.farBottomLeft];
 
-	if ( !light.isDirectionalOnly ) [self addUniqueVertex: self.lightPosition];
+	if ( !_light.isDirectionalOnly ) [self addUniqueVertex: self.lightPosition];
 	
-	LogTrace(@"Built %@ from %@", self.fullDescription, cameraFrustum.fullDescription);
+	LogTrace(@"Built %@ from %@", self.fullDescription, cf.fullDescription);
 }
 
 @end
@@ -909,19 +846,19 @@ static GLuint lightPoolStartIndex = 0;
 
 -(CC3Plane*) planes {
 	[self updateIfNeeded];
-	return planes;
+	return _planes;
 }
 
 -(GLuint) planeCount { return 6; }
 
 -(CC3Vector*) vertices {
 	[self updateIfNeeded];
-	return vertices;
+	return _vertices;
 }
 
 -(GLuint) vertexCount {
 	[self updateIfNeeded];
-	return light.isDirectionalOnly ? 4 : 5;
+	return _light.isDirectionalOnly ? 4 : 5;
 }
 
 -(CC3Plane) topPlane { return self.planes[kCC3TopIdx]; }
@@ -936,11 +873,12 @@ static GLuint lightPoolStartIndex = 0;
 
 /** Updates the vertices from the camera frustum. */
 -(void) buildVolume {
-	vertices[kCC3TopLeftIdx] = cameraFrustum.nearTopLeft;
-	vertices[kCC3TopRgtIdx] = cameraFrustum.nearTopRight;
-	vertices[kCC3BtmLeftIdx] = cameraFrustum.nearBottomLeft;
-	vertices[kCC3BtmRgtIdx] = cameraFrustum.nearBottomRight;
-	vertices[kCC3LightIdx] = self.lightPosition;
+    CC3Frustum* cf = _light.activeCamera.frustum;
+	_vertices[kCC3TopLeftIdx] = cf.nearTopLeft;
+	_vertices[kCC3TopRgtIdx] = cf.nearTopRight;
+	_vertices[kCC3BtmLeftIdx] = cf.nearBottomLeft;
+	_vertices[kCC3BtmRgtIdx] = cf.nearBottomRight;
+	_vertices[kCC3LightIdx] = self.lightPosition;
 }
 
 /**
@@ -960,15 +898,15 @@ static GLuint lightPoolStartIndex = 0;
 	// Get the 3D position that corresponds to either a location or a direction
 	CC3Vector lightPos = self.lightPosition;
 	CC3Vector lightDir;
-	CC3Vector tl = vertices[kCC3TopLeftIdx];
-	CC3Vector tr = vertices[kCC3TopRgtIdx];
-	CC3Vector bl = vertices[kCC3BtmLeftIdx];
-	CC3Vector br = vertices[kCC3BtmRgtIdx];
+	CC3Vector tl = _vertices[kCC3TopLeftIdx];
+	CC3Vector tr = _vertices[kCC3TopRgtIdx];
+	CC3Vector bl = _vertices[kCC3BtmLeftIdx];
+	CC3Vector br = _vertices[kCC3BtmRgtIdx];
 	
 	// The near plane does not depend on the light position
-	planes[kCC3NearIdx] = CC3PlaneFromLocations(bl, br, tr);
+	_planes[kCC3NearIdx] = CC3PlaneFromLocations(bl, br, tr);
 	
-	if (light.isDirectionalOnly) {
+	if (_light.isDirectionalOnly) {
 		
 		// The light is infinitely far away. The light position is actually a direction to it.
 		// Opposite sides are parallel and pointing in the direction of the light source.
@@ -976,18 +914,18 @@ static GLuint lightPoolStartIndex = 0;
 		// plane by adding the light direction to one of the locations on the edge. 
 		lightDir = lightPos;
 		
-		planes[kCC3LeftIdx] = CC3PlaneFromLocations(bl, tl, CC3VectorAdd(tl, lightDir));
-		planes[kCC3RgtIdx] = CC3PlaneFromLocations(tr, br, CC3VectorAdd(br, lightDir));
+		_planes[kCC3LeftIdx] = CC3PlaneFromLocations(bl, tl, CC3VectorAdd(tl, lightDir));
+		_planes[kCC3RgtIdx] = CC3PlaneFromLocations(tr, br, CC3VectorAdd(br, lightDir));
 		
-		planes[kCC3TopIdx] = CC3PlaneFromLocations(tl, tr, CC3VectorAdd(tr, lightDir));
-		planes[kCC3BotmIdx] = CC3PlaneFromLocations(br, bl, CC3VectorAdd(bl, lightDir));
+		_planes[kCC3TopIdx] = CC3PlaneFromLocations(tl, tr, CC3VectorAdd(tr, lightDir));
+		_planes[kCC3BotmIdx] = CC3PlaneFromLocations(br, bl, CC3VectorAdd(bl, lightDir));
 		
 		// The far plane is parallel to the near plane, but the normal points in
 		// the opposite direction. Locate the far plane at the light position,
 		// and then move it out an infinite distance, in the same direction.
-		planes[kCC3FarIdx] = CC3PlaneNegate(planes[kCC3NearIdx]);
-		planes[kCC3FarIdx].d = -CC3VectorDot(lightPos, CC3PlaneNormal(planes[kCC3FarIdx]));
-		planes[kCC3FarIdx].d = SIGN(planes[kCC3FarIdx].d) * INFINITY;
+		_planes[kCC3FarIdx] = CC3PlaneNegate(_planes[kCC3NearIdx]);
+		_planes[kCC3FarIdx].d = -CC3VectorDot(lightPos, CC3PlaneNormal(_planes[kCC3FarIdx]));
+		_planes[kCC3FarIdx].d = SIGN(_planes[kCC3FarIdx].d) * INFINITY;
 
 	} else {
 		
@@ -995,16 +933,16 @@ static GLuint lightPoolStartIndex = 0;
 		// The direction is taken from the center of the near clipping rectangle.
 		lightDir = CC3VectorDifference(lightPos, CC3VectorAverage(tl, br));
 		
-		planes[kCC3LeftIdx] = CC3PlaneFromLocations(bl, tl, lightPos);
-		planes[kCC3RgtIdx] = CC3PlaneFromLocations(tr, br, lightPos);
+		_planes[kCC3LeftIdx] = CC3PlaneFromLocations(bl, tl, lightPos);
+		_planes[kCC3RgtIdx] = CC3PlaneFromLocations(tr, br, lightPos);
 		
-		planes[kCC3TopIdx] = CC3PlaneFromLocations(tl, tr, lightPos);
-		planes[kCC3BotmIdx] = CC3PlaneFromLocations(br, bl, lightPos);
+		_planes[kCC3TopIdx] = CC3PlaneFromLocations(tl, tr, lightPos);
+		_planes[kCC3BotmIdx] = CC3PlaneFromLocations(br, bl, lightPos);
 		
 		// The far plane is parallel to the near plane, but the normal points in
 		// the opposite direction. Locate the far plane at the light position.
-		planes[kCC3FarIdx] = CC3PlaneNegate(planes[kCC3NearIdx]);
-		planes[kCC3FarIdx].d = -CC3VectorDot(lightPos, CC3PlaneNormal(planes[kCC3FarIdx]));
+		_planes[kCC3FarIdx] = CC3PlaneNegate(_planes[kCC3NearIdx]);
+		_planes[kCC3FarIdx].d = -CC3VectorDot(lightPos, CC3PlaneNormal(_planes[kCC3FarIdx]));
 
 	}
 	
@@ -1017,23 +955,23 @@ static GLuint lightPoolStartIndex = 0;
 	BOOL isBehindCamera = (CC3VectorDot(camDir, lightDir) < 0);
 	
 	if ( isBehindCamera ) {
-		planes[kCC3LeftIdx] = CC3PlaneNegate(planes[kCC3LeftIdx]);
-		planes[kCC3RgtIdx] = CC3PlaneNegate(planes[kCC3RgtIdx]);
-		planes[kCC3TopIdx] = CC3PlaneNegate(planes[kCC3TopIdx]);
-		planes[kCC3BotmIdx] = CC3PlaneNegate(planes[kCC3BotmIdx]);
-		planes[kCC3NearIdx] = CC3PlaneNegate(planes[kCC3NearIdx]);
-		planes[kCC3FarIdx] = CC3PlaneNegate(planes[kCC3FarIdx]);
+		_planes[kCC3LeftIdx] = CC3PlaneNegate(_planes[kCC3LeftIdx]);
+		_planes[kCC3RgtIdx] = CC3PlaneNegate(_planes[kCC3RgtIdx]);
+		_planes[kCC3TopIdx] = CC3PlaneNegate(_planes[kCC3TopIdx]);
+		_planes[kCC3BotmIdx] = CC3PlaneNegate(_planes[kCC3BotmIdx]);
+		_planes[kCC3NearIdx] = CC3PlaneNegate(_planes[kCC3NearIdx]);
+		_planes[kCC3FarIdx] = CC3PlaneNegate(_planes[kCC3FarIdx]);
 	}
 	
 	LogTrace(@"Built %@ from %@ light %@ the camera",
-				  self.fullDescription, (self.isLightDirectional ? @"directional" : @"positional"),
+				  self.fullDescription, (_light.isDirectionalOnly ? @"directional" : @"positional"),
 				  (isBehindCamera ? @"behind" : @"in front of"));
 }
 
 -(NSString*) fullDescription {
 	NSMutableString* desc = [NSMutableString stringWithCapacity: 500];
 	[desc appendFormat: @"%@", self.description];
-	[desc appendFormat: @" from light at %@", NSStringFromCC3Vector4(light.homogeneousLocation)];
+	[desc appendFormat: @" from light at %@", NSStringFromCC3Vector4(_light.globalHomogeneousPosition)];
 	[desc appendFormat: @"\n\tleftPlane: %@", NSStringFromCC3Plane(self.leftPlane)];
 	[desc appendFormat: @"\n\trightPlane: %@", NSStringFromCC3Plane(self.rightPlane)];
 	[desc appendFormat: @"\n\ttopPlane: %@", NSStringFromCC3Plane(self.topPlane)];

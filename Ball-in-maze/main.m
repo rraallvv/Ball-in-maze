@@ -1,17 +1,15 @@
 //
 //  main.m
-//  Donuts2
+//  test
 //
-//  Created by Rhody on 6/30/13.
-//  Copyright __MyCompanyName__ 2013. All rights reserved.
+//  Created by Rhody Lugo on 2/27/14.
+//  Copyright Rhody Lugo 2014. All rights reserved.
 //
 
 #import <UIKit/UIKit.h>
 
 int main(int argc, char *argv[]) {
-    
-    NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
-    int retVal = UIApplicationMain(argc, argv, nil, @"Donuts2AppDelegate");
-    [pool release];
-    return retVal;
+	@autoreleasepool {
+		return UIApplicationMain(argc, argv, nil, @"testAppDelegate");
+	}
 }

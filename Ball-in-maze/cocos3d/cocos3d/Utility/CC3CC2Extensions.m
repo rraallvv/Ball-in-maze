@@ -1,9 +1,9 @@
 /*
  * CC3CC2Extensions.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,16 +30,80 @@
  */
 
 #import "CC3CC2Extensions.h"
-#import "CC3IOSExtensions.h"
 #import "CC3Logging.h"
-#import "CCDirectorIOS.h"
-#import "CGPointExtension.h"
-#import "CCTouchDispatcher.h"
-#import "CCConfiguration.h"
-#import "CCFileUtils.h"
-#import "cocos2d.h"
 #import "uthash.h"
 
+#if CC3_IOS
+@implementation CCGLView (CC3)
+
+-(id) initWithFrame: (CGRect) frame
+		pixelFormat: (NSString*) colorFormat
+		depthFormat: (GLenum) depthFormat
+ preserveBackbuffer: (BOOL) isRetained
+	numberOfSamples: (GLuint) sampleCount {
+	return [self initWithFrame: frame
+				   pixelFormat: colorFormat
+				   depthFormat: depthFormat
+			preserveBackbuffer: isRetained
+					sharegroup: nil
+				 multiSampling: (sampleCount > 1)
+			   numberOfSamples: sampleCount];
+}
+
++(id) viewWithFrame: (CGRect) frame
+		pixelFormat: (NSString*) colorFormat
+		depthFormat: (GLenum) depthFormat
+ preserveBackbuffer: (BOOL) isRetained
+	numberOfSamples: (GLuint) sampleCount {
+	return [[self alloc] initWithFrame: frame
+						   pixelFormat: colorFormat
+						   depthFormat: depthFormat
+					preserveBackbuffer: isRetained
+					   numberOfSamples: sampleCount];
+}
+
+@end
+#endif	// CC3_IOS
+
+#if !CC3_IOS
+
+#pragma mark -
+#pragma mark Extensions for non-IOS environments
+
+@implementation CCTouchDispatcher
+-(void) addTargetedDelegate: (id) delegate priority: (NSInteger) priority swallowsTouches: (BOOL) swallowsTouches {}
++(id) sharedDispatcher { return nil; }
+@end
+
+@implementation CCDirector (NonIOS)
+-(CCTouchDispatcher*) touchDispatcher { return nil; }
+@end
+
+@implementation CCNode (NonIOS)
+-(CGPoint) convertTouchToNodeSpace: (UITouch*) touch { return CGPointZero; }
+@end
+
+#endif		// !CC3_IOS
+
+
+#if COCOS2D_VERSION < 0x020100
+#	define CC2_DT dt
+#	define CC2_FRAME_RATE frameRate_
+#	define CC2_RUNNING_SCENE runningScene_
+#	define CC2_NEXT_SCENE nextScene_
+#	define CC2_LAST_DISPLAY_TIME lastDisplayTime_
+#else
+#	define CC2_DT _dt
+#	define CC2_FRAME_RATE _frameRate
+#	define CC2_RUNNING_SCENE _runningScene
+#	define CC2_NEXT_SCENE _nextScene
+#	define CC2_LAST_DISPLAY_TIME _lastDisplayTime
+#endif
+
+#if !CC3_IOS
+#	undef CC2_LAST_DISPLAY_TIME
+#	define CC2_LAST_DISPLAY_TIME 0
+#endif
 
 #pragma mark -
 #pragma mark CC3CCSizeTo action
@@ -54,7 +118,7 @@
 }
 
 +(id) actionWithDuration: (ccTime) dur sizeTo: (CGSize) endSize {
-	return [[[self alloc] initWithDuration: dur sizeTo: endSize] autorelease];
+	return [[self alloc] initWithDuration: dur sizeTo: endSize];
 }
 
 -(id) copyWithZone: (NSZone*) zone {
@@ -89,14 +153,34 @@
 
 @implementation CCNode (CC3)
 
-- (CGRect) globalBoundingBoxInPixels {
-	CGRect rect = CGRectMake(0, 0, contentSizeInPixels_.width, contentSizeInPixels_.height);
-	return CGRectApplyAffineTransform(rect, [self nodeToWorldTransform]);
-}
+#if CC3_CC2_2
+-(CGSize) contentSizeInPixels { return CC_SIZE_POINTS_TO_PIXELS(self.contentSize); }
 
--(void) updateViewport {
-	[children_ makeObjectsPerformSelector:@selector(updateViewport)];	
+-(CGRect) boundingBoxInPixels { return CC_RECT_POINTS_TO_PIXELS(self.boundingBox); }
+#endif	// CC3_CC2_2
+
+-(BOOL) isTouchEnabled { return NO; }
+
+#if CC3_CC2_2
+-(CGRect) globalBoundingBoxInPixels {
+	CGSize cs = self.contentSize;
+	CGRect rect = CGRectMake(0, 0, cs.width, cs.height);
+	rect = CGRectApplyAffineTransform(rect, [self nodeToWorldTransform]);
+	return CC_RECT_POINTS_TO_PIXELS(rect);
 }
+#endif	// CC3_CC2_2
+#if CC3_CC2_1	// Under cocos2d 1.x, don't Retina-scale rect origin!
+-(CGRect) globalBoundingBoxInPixels {
+	CGSize cs = self.contentSize;
+	CGRect rect = CGRectMake(0, 0, cs.width, cs.height);
+	rect = CGRectApplyAffineTransform(rect, [self nodeToWorldTransform]);
+	rect.size.width *= CC_CONTENT_SCALE_FACTOR();
+	rect.size.height *= CC_CONTENT_SCALE_FACTOR();
+	return rect;
+}
+#endif	// CC3_CC2_1
+
+-(void) updateViewport { [self.children makeObjectsPerformSelector:@selector(updateViewport)]; }
 
 -(CGPoint) cc3ConvertUIPointToNodeSpace: (CGPoint) viewPoint {
 	CGPoint glPoint = [[CCDirector sharedDirector] convertToGL: viewPoint];
@@ -109,14 +193,14 @@
 }
 
 -(CGPoint) cc3ConvertUIMovementToNodeSpace: (CGPoint) uiMovement {
-	switch ( [[CCDirector sharedDirector] deviceOrientation] ) {
-		case CCDeviceOrientationLandscapeLeft:
+	switch ( CCDirector.sharedDirector.deviceOrientation ) {
+		case UIDeviceOrientationLandscapeLeft:
 			return ccp( uiMovement.y, uiMovement.x );
-		case CCDeviceOrientationLandscapeRight:
+		case UIDeviceOrientationLandscapeRight:
 			return ccp( -uiMovement.y, -uiMovement.x );
-		case CCDeviceOrientationPortraitUpsideDown:
+		case UIDeviceOrientationPortraitUpsideDown:
 			return ccp( -uiMovement.x, uiMovement.y );
-		case CCDeviceOrientationPortrait:
+		case UIDeviceOrientationPortrait:
 		default:
 			return ccp( uiMovement.x, -uiMovement.y );
 	}
@@ -128,23 +212,20 @@
 	return ccp(glMovement.x / cs.width, glMovement.y / cs.height);
 }
 
--(BOOL) cc3IsTouchEnabled { return NO; }
-
 /**
  * Based on cocos2d Gesture Recognizer ideas by Krzysztof Zabłocki at:
  * http://www.merowing.info/2012/03/using-gesturerecognizers-in-cocos2d/
  */
 -(BOOL) cc3WillConsumeTouchEventAt: (CGPoint) viewPoint {
 	
-	if (self.cc3IsTouchEnabled &&
+	if (self.isTouchEnabled &&
 		self.visible &&
 		self.isRunning &&
 		[self cc3ContainsTouchPoint: viewPoint] ) return YES;
 	
 	CCArray* myKids = self.children;
-	for (CCNode* child in myKids) {
+	for (CCNode* child in myKids)
 		if ( [child cc3WillConsumeTouchEventAt: viewPoint] ) return YES;
-	}
 
 	LogTrace(@"%@ will NOT consume event at %@", [self class], NSStringFromCGPoint(viewPoint));
 
@@ -165,6 +246,7 @@
 	return NO;
 }
 
+#if CC3_IOS
 -(BOOL) cc3ValidateGesture: (UIGestureRecognizer*) gesture {
 	if ( [self cc3WillConsumeTouchEventAt: gesture.location] ) {
 		[gesture cancel];
@@ -172,6 +254,19 @@
 	} else {
 		return YES;
 	}
+}
+#endif	// CC3_IOS
+
+-(CGPoint) cc3ConvertNSEventToNodeSpace: (NSEvent*) event {
+#if CC3_OSX
+	return [self convertToNodeSpace: [CCDirector.sharedDirector convertEventToGL: event]];
+#else
+	return CGPointZero;
+#endif	// CC3_OSX
+}
+
+-(void) reshapeProjection: (CGSize) newWindowSize {
+	for (CCNode* child in self.children) [child reshapeProjection: newWindowSize];
 }
 
 @end
@@ -182,7 +277,24 @@
 
 @implementation CCLayer (CC3)
 
--(BOOL) cc3IsTouchEnabled { return self.isTouchEnabled; }
+#if COCOS2D_VERSION < 0x020100
+-(void) setTouchEnabled: (BOOL) isTouchEnabled { self.isTouchEnabled = isTouchEnabled; }
+#endif
+
+#if CC3_IOS
+-(BOOL) isMouseEnabled { return NO; }
+-(void) setMouseEnabled: (BOOL) isMouseEnabled {}
+-(NSInteger) mousePriority { return 0; }
+-(void) setMousePriority: (NSInteger) priority {}
+#endif	// CC3_IOS
+
+#if CC3_OSX
+#if COCOS2D_VERSION < 0x020100
+-(void) setMouseEnabled: (BOOL) isMouseEnabled { self.isMouseEnabled = isMouseEnabled; }
+-(NSInteger) mousePriority { return 0; }
+-(void) setMousePriority: (NSInteger) priority {}
+#endif
+#endif	// CC3_OSX
 
 @end
 
@@ -194,11 +306,79 @@
 
 -(BOOL) cc3ContainsTouchPoint: (CGPoint) viewPoint {
 	CCArray* myKids = self.children;
-	for (CCNode* child in myKids) {
+	for (CCNode* child in myKids)
 		if ( [child cc3ContainsTouchPoint: viewPoint] ) return YES;
-	}
 	return NO;
 }
+
+@end
+
+
+#pragma mark -
+#pragma mark CCMenu extension
+
+@implementation CCMenuItemImage (CC3)
+#if CC3_CC2_1
++(id) itemWithNormalImage: (NSString*)value selectedImage:(NSString*) value2 {
+	return [self itemFromNormalImage:value selectedImage:value2];
+}
++(id) itemWithNormalImage: (NSString*)value selectedImage:(NSString*) value2 target:(id) r selector:(SEL) s {
+	return [self itemFromNormalImage:value selectedImage:value2 target:r selector:s];
+}
+#endif
+@end
+
+
+#pragma mark -
+#pragma mark CCTexture2D extension
+
+@implementation CCTexture2D (CC3)
+
+-(void) addToCacheWithName: (NSString*) texName {
+	[CCTextureCache.sharedTextureCache addTexture: self named: texName];
+}
+
+@end
+
+
+#pragma mark -
+#pragma mark CCTextureCache extension
+
+@implementation CCTextureCache (CC3)
+
+#if CC3_CC2_2
+#	define CC2_DICT_QUEUE		_dictQueue
+
+#if COCOS2D_VERSION < 0x020100
+#	define CC2_TEX_DICT			textures_
+#else
+#	define CC2_TEX_DICT			_textures
+#endif	// COCOS2D_VERSION < 0x020100
+
+-(void) addTexture: (CCTexture2D*) tex2D named: (NSString*) texName {
+	if ( !tex2D || !texName ) return;
+	
+	dispatch_sync(CC2_DICT_QUEUE, ^{
+		if ( ![CC2_TEX_DICT objectForKey: texName] )
+			[CC2_TEX_DICT setObject: tex2D forKey: texName];
+	});
+}
+
+#endif	// CC3_CC2_2
+
+#if CC3_CC2_1
+#	define CC2_DICT_LOCK		dictLock_
+#	define CC2_TEX_DICT			textures_
+
+-(void) addTexture: (CCTexture2D*) tex2D named: (NSString*) texName {
+	if ( !tex2D ) return;
+
+	[CC2_DICT_LOCK lock];
+	[CC2_TEX_DICT setObject: tex2D forKey: texName];
+	[CC2_DICT_LOCK unlock];
+}
+
+#endif	// CC3_CC2_2
 
 @end
 
@@ -208,404 +388,129 @@
 
 @implementation CCDirector (CC3)
 
--(ccTime) frameInterval { return dt; }
+-(CCGLView*) ccGLView { return (CCGLView*)self.view; }
 
--(ccTime) frameRate { return frameRate_; }
+-(void) setCcGLView: (CCGLView*) ccGLView { self.view = ccGLView; }
+
+-(ccTime) frameInterval { return CC2_DT; }
+
+-(ccTime) frameRate { return CC2_FRAME_RATE; }
+
+-(BOOL) hasScene { return !((CC2_RUNNING_SCENE == nil) && (CC2_NEXT_SCENE == nil)); }
+
+-(NSTimeInterval) displayLinkTime { return [NSDate timeIntervalSinceReferenceDate]; }
+
+#if CC3_CC2_1
+-(void) setDisplayStats: (BOOL) displayFPS { [self setDisplayFPS: displayFPS]; }
+
+-(CCGLView*) view { return (CCGLView*)self.openGLView; }
+
+-(void) setView: (CCGLView*) view { self.openGLView = (CCGLView*)view; }
+
+-(CCActionManager*) actionManager { return CCActionManager.sharedManager; }
+
+#if CC3_IOS
+-(CCTouchDispatcher*) touchDispatcher { return CCTouchDispatcher.sharedDispatcher; }
+#endif	// CC3_IOS
+
+-(CCScheduler*) scheduler { return CCScheduler.sharedScheduler; }
+
+#if COCOS2D_VERSION < 0x010100
+-(void) setRunLoopCommon: (BOOL) common {}
+#endif
+
+#endif	// CC3_CC2_1
+
+#if CC3_CC2_2 || CC3_OSX
+-(UIDeviceOrientation) deviceOrientation { return UIDeviceOrientationPortrait; }
+#endif
+
+@end
+
+
+#if CC3_IOS
+
+#pragma mark -
+#pragma mark CCDirectorIOS extension
+
+@implementation CCDirectorIOS (CC3)
+
+/**
+ * Overridden to use a different font file (fps_images_1.png) when using cocos2d 1.x.
+ *
+ * Both cocos2d 1.x & 2.x use a font file named fps_images.png, which are different and
+ * incompatible with each other. This allows a project to include both versions of the file,
+ * and use the font file version that is appropriate for the cocos2d version.
+ */
+-(void) setGLDefaultValues {
+
+#if CC_DIRECTOR_FAST_FPS
+    if (!FPSLabel_) {
+		CCTexture2DPixelFormat currentFormat = [CCTexture2D defaultAlphaPixelFormat];
+		[CCTexture2D setDefaultAlphaPixelFormat:kCCTexture2DPixelFormat_RGBA4444];
+		FPSLabel_ = [CCLabelAtlas labelWithString:@"00.0" charMapFile:@"fps_images_1.png" itemWidth:16 itemHeight:24 startCharMap:'.'];
+		[CCTexture2D setDefaultAlphaPixelFormat:currentFormat];
+	}
+#endif	// CC_DIRECTOR_FAST_FPS
+
+	[super setGLDefaultValues];
+}
+
+@end
+
+#endif		// CC3_IOS
+
+
+#if CC3_OSX
+
+#pragma mark -
+#pragma mark CCDirectorMac extension
+
+@implementation CCDirectorMac (CC3)
+
+-(void) reshapeProjection: (CGSize) newWindowSize {
+	[super reshapeProjection: newWindowSize];
+	if (self.resizeMode == kCCDirectorResize_NoScale)
+		[self.runningScene reshapeProjection: newWindowSize];
+}
+
+@end
+
+#endif		// CC3_OSX
+
+
+#pragma mark -
+#pragma mark CCDirectorDisplayLink extension
+
+@implementation CCDirectorDisplayLink (CC3)
+
+#if CC3_CC2_2
+-(NSTimeInterval) displayLinkTime { return CC2_LAST_DISPLAY_TIME; }
+#endif
+
+/** Uncomment to log a debug message whenever the frame time is unexpectedly extended. */
+//-(void) drawScene {
+//	NSTimeInterval tooSlow = 0.0667;	// 15 fps - change as you like
+//	MarkDebugActivityStart();
+//	[super drawScene];
+//	NSTimeInterval drawDur = GetDebugActivityDuration();
+//	if (drawDur > tooSlow)
+//		LogDebug(@"Slow scene update and draw in %.3f ms (%.1f fps)",
+//				 drawDur * 1000.0, 1.0 / drawDur);
+//}
 
 @end
 
 
 #pragma mark -
-#pragma mark CC3BMFontConfiguration
+#pragma mark CCFileUtils extension
 
-/** Structure holding character kerning data. Copied from identical definition in CCLabelBMFont.m. */
-typedef struct _KerningHashElement {	
-	int key;		// key for the hash. 16-bit for 1st element, 16-bit for 2nd element
-	int amount;
-	UT_hash_handle hh;
-} tKerningHashElement;
+/** Extension category to support cocos3d functionality. */
+@implementation CCFileUtils (CC3)
 
-@interface CCBMFontConfiguration (TemplateMethods)
--(void) parseConfigFile:(NSString*)controlFile;
--(void) parseCharacterDefinition:(NSString*)line;
--(void) parseCharacterDefinition:(NSString*)line charDef:(ccBMFontDef*)characterDefinition;
--(void) parseInfoArguments:(NSString*)line;
--(void) parseCommonArguments:(NSString*)line;
--(void) parseImageFileName:(NSString*)line fntFile:(NSString*)fntFile;
--(void) parseKerningCapacity:(NSString*)line;
--(void) parseKerningEntry:(NSString*)line;
--(void) purgeKerningDictionary;
-@end
-
-@implementation CC3BMFontConfiguration
-
--(ccBMFontDef*) characterSpecFor: (unichar) c {
-// cocos2d 1.0 and below use an array to hold the font definitions.
-// cocos2d 1.1 and above use a hash list.
-#if COCOS2D_VERSION < 0x010100
-	return (c < kCCBMFontMaxChars) ? &BMFontArray_[c] : NULL;
-#else
-	ccBMFontDef *charSpec = NULL;
-	unsigned int charKey = c;
-	HASH_FIND_INT(BMFontHash_, &charKey, charSpec);
-	return charSpec;
+#if CC3_CC2_1
++(Class) sharedFileUtils { return self; }
 #endif
-}
-
--(NSInteger) kerningBetween: (unichar) firstChar and: (unichar) secondChar {
-	if(kerningDictionary_) {
-		unsigned int key = (firstChar << 16) | (secondChar & 0xffff);
-		tKerningHashElement* element = NULL;
-		HASH_FIND_INT(kerningDictionary_, &key, element);		
-		if(element) return element->amount;
-	}
-	return 0;
-}
-
-/** Overridden to parse info line. */
-- (void)parseConfigFile: (NSString*) fntFile {	
-	NSString *fullpath = [CCFileUtils fullPathFromRelativePath:fntFile];
-	NSError *error;
-	NSString *contents = [NSString stringWithContentsOfFile:fullpath encoding:NSUTF8StringEncoding error:&error];
-	
-	NSAssert1( contents, @"cocos2d: Error parsing FNTfile: %@", error);
-	
-	// Move all lines in the string, which are denoted by \n, into an array
-	NSArray *lines = [[NSArray alloc] initWithArray:[contents componentsSeparatedByString:@"\n"]];
-	
-	// Create an enumerator which we can use to move through the lines read from the control file
-	NSEnumerator *nse = [lines objectEnumerator];
-	
-	// Create a holder for each line we are going to work with
-	NSString *line;
-	
-	// Loop through all the lines in the lines array processing each one
-	while( (line = [nse nextObject]) ) {
-		// parse spacing / padding
-		if([line hasPrefix:@"info face"]) {
-			[self parseInfoArguments:line];
-		}
-		// Check to see if the start of the line is something we are interested in
-		else if([line hasPrefix:@"common lineHeight"]) {
-			[self parseCommonArguments:line];
-		}
-		else if([line hasPrefix:@"page id"]) {
-			[self parseImageFileName:line fntFile:fntFile];
-		}
-		else if([line hasPrefix:@"chars c"]) {
-			// Ignore this line
-		}
-		else if([line hasPrefix:@"char"]) {
-			[self parseCharacterDefinition:line];
-		}
-		else if([line hasPrefix:@"kernings count"]) {
-			[self parseKerningCapacity:line];
-		}
-		else if([line hasPrefix:@"kerning first"]) {
-			[self parseKerningEntry:line];
-		}
-	}
-	// Finished with lines so release it
-	[lines release];
-}
-
-// cocos2d 1.0 and below use an array to hold the character configs and, from the parseConfigFile:
-// method, invoke the parseCharacterDefinition:charDef: method instead of the parseCharacterDefinition:
-// method. Create a suitable replacement for the parseCharacterDefinition:.
-#if COCOS2D_VERSION < 0x010100
--(void) parseCharacterDefinition: (NSString*) line {
-	ccBMFontDef characterDefinition;
-	[self parseCharacterDefinition:line charDef: &characterDefinition];
-	BMFontArray_[ characterDefinition.charID ] = characterDefinition;
-}
-#endif
-
-/*
-- (void)parseConfigFile: (NSString*) fntFile {
-	NSString *fullpath = [CCFileUtils fullPathFromRelativePath:fntFile];
-	NSError *error;
-	NSString *contents = [NSString stringWithContentsOfFile:fullpath encoding:NSUTF8StringEncoding error:&error];
-	
-	NSAssert1( contents, @"cocos2d: Error parsing FNTfile: %@", error);
-	
-	// Move all lines in the string, which are denoted by \n, into an array
-	NSArray *lines = [[NSArray alloc] initWithArray:[contents componentsSeparatedByString:@"\n"]];
-	
-	// Create an enumerator which we can use to move through the lines read from the control file
-	NSEnumerator *nse = [lines objectEnumerator];
-	
-	// Create a holder for each line we are going to work with
-	NSString *line;
-	
-	// Loop through all the lines in the lines array processing each one
-	while( (line = [nse nextObject]) ) {
-		// parse spacing / padding
-		if([line hasPrefix:@"info face"]) {
-			[self parseInfoArguments:line];
-		}
-		// Check to see if the start of the line is something we are interested in
-		else if([line hasPrefix:@"common lineHeight"]) {
-			[self parseCommonArguments:line];
-		}
-		else if([line hasPrefix:@"page id"]) {
-			[self parseImageFileName:line fntFile:fntFile];
-		}
-		else if([line hasPrefix:@"chars c"]) {
-			// Ignore this line
-		}
-		else if([line hasPrefix:@"char"]) {
-			// Parse the current line and create a new CharDef
-			ccBMFontDef characterDefinition;
-			[self parseCharacterDefinition:line charDef:&characterDefinition];
-			
-			// Add the CharDef returned to the charArray
-			BMFontArray_[ characterDefinition.charID ] = characterDefinition;
-		}
-		else if([line hasPrefix:@"kernings count"]) {
-			[self parseKerningCapacity:line];
-		}
-		else if([line hasPrefix:@"kerning first"]) {
-			[self parseKerningEntry:line];
-		}
-	}
-	// Finished with lines so release it
-	[lines release];
-}
-*/
-
-/** Overridden with copied superclass method, modified to parse size into fontSize iVar. */
--(void) parseInfoArguments: (NSString*) line {
-	//
-	// possible lines to parse:
-	// info face="Script" size=32 bold=0 italic=0 charset="" unicode=1 stretchH=100 smooth=1 aa=1 padding=1,4,3,2 spacing=0,0 outline=0
-	// info face="Cracked" size=36 bold=0 italic=0 charset="" unicode=0 stretchH=100 smooth=1 aa=1 padding=0,0,0,0 spacing=1,1
-	//
-	NSArray *values = [line componentsSeparatedByString:@"="];
-	NSEnumerator *nse = [values objectEnumerator];	
-	NSString *propertyValue = nil;
-	
-	// We need to move past the first entry in the array before we start assigning values
-	[nse nextObject];
-	
-	// face (ignore)
-	[nse nextObject];
-	
-	// Font size
-	propertyValue = [nse nextObject];
-	fontSize = [propertyValue floatValue];
-	
-	// bold (ignore)
-	[nse nextObject];
-	
-	// italic (ignore)
-	[nse nextObject];
-	
-	// charset (ignore)
-	[nse nextObject];
-	
-	// unicode (ignore)
-	[nse nextObject];
-	
-	// strechH (ignore)
-	[nse nextObject];
-	
-	// smooth (ignore)
-	[nse nextObject];
-	
-	// aa (ignore)
-	[nse nextObject];
-	
-	// padding (ignore)
-	propertyValue = [nse nextObject];
-	{
-		
-		NSArray *paddingValues = [propertyValue componentsSeparatedByString:@","];
-		NSEnumerator *paddingEnum = [paddingValues objectEnumerator];
-		// padding top
-		propertyValue = [paddingEnum nextObject];
-		padding_.top = [propertyValue intValue];
-		
-		// padding right
-		propertyValue = [paddingEnum nextObject];
-		padding_.right = [propertyValue intValue];
-		
-		// padding bottom
-		propertyValue = [paddingEnum nextObject];
-		padding_.bottom = [propertyValue intValue];
-		
-		// padding left
-		propertyValue = [paddingEnum nextObject];
-		padding_.left = [propertyValue intValue];
-		
-		CCLOG(@"cocos2d: padding: %d,%d,%d,%d", padding_.left, padding_.top, padding_.right, padding_.bottom);
-	}
-	
-	// spacing (ignore)
-	[nse nextObject];	
-}
-
-/** Overridden with copied superclass method, modified to parse scale W & H into textureSize iVar. */
--(void) parseCommonArguments: (NSString*) line {
-	//
-	// line to parse:
-	// common lineHeight=104 base=26 scaleW=1024 scaleH=512 pages=1 packed=0
-	//
-	NSArray *values = [line componentsSeparatedByString:@"="];
-	NSEnumerator *nse = [values objectEnumerator];	
-	NSString *propertyValue = nil;
-	
-	// We need to move past the first entry in the array before we start assigning values
-	[nse nextObject];
-	
-	// line height
-	propertyValue = [nse nextObject];
-	commonHeight_ = [propertyValue intValue];
-	
-	// baseline
-	propertyValue = [nse nextObject];
-	baseline = [propertyValue intValue];
-	
-	// scaleW
-	propertyValue = [nse nextObject];
-	textureSize.x = [propertyValue intValue];
-	NSAssert(textureSize.x <= [[CCConfiguration sharedConfiguration] maxTextureSize], @"CCLabelBMFont: page can't be larger than supported");
-	
-	// scaleH
-	propertyValue = [nse nextObject];
-	textureSize.y = [propertyValue intValue];
-	NSAssert(textureSize.y <= [[CCConfiguration sharedConfiguration] maxTextureSize], @"CCLabelBMFont: page can't be larger than supported");
-	
-	// pages. sanity check
-	propertyValue = [nse nextObject];
-	NSAssert( [propertyValue intValue] == 1, @"CCBitfontAtlas: only supports 1 page");
-	
-	// packed (ignore) What does this mean ??
-}
-
-static NSMutableDictionary* cc3BMFontConfigurations = nil;
-
-+(id) configurationFromFontFile: (NSString*) fontFile {
-	CC3BMFontConfiguration *fontConfig = nil;
-	
-	if( cc3BMFontConfigurations == nil )
-		cc3BMFontConfigurations = [[NSMutableDictionary dictionaryWithCapacity: 4] retain];
-	
-	fontConfig = [cc3BMFontConfigurations objectForKey: fontFile];
-	if(!fontConfig) {
-		fontConfig = [super configurationWithFNTFile: fontFile];
-		[cc3BMFontConfigurations setObject: fontConfig forKey: fontFile];
-	}
-	return fontConfig;
-}
-
-+(void) clearFontConfigurations { [cc3BMFontConfigurations removeAllObjects]; }
-
-@end
-
-
-#pragma mark -
-#pragma mark CCArray extension
-
-@implementation CCArray (CC3)
-
--(NSUInteger) indexOfObjectIdenticalTo: (id) anObject {
-	return [self indexOfObject: anObject];
-}
-
--(void) removeObjectIdenticalTo: (id) anObject {
-	[self removeObject: anObject];
-}
-
--(void) fastReplaceObjectAtIndex: (NSUInteger) index withObject: (id) anObject {
-	NSAssert(index < data->num, @"Invalid index. Out of bounds");
-
-	id oldObj = data->arr[index];
-	data->arr[index] = [anObject retain];
-	[oldObj release];						// Release after in case new is same as old
-}
-
--(BOOL) setCapacity: (NSUInteger) newCapacity {
-	if (data->max == newCapacity) return NO;
-
-	// Release any current elements that are beyond the new capacity.
-	if (self.count > 0) {	// Reqd so count - 1 can't be done on NSUInteger of zero
-		for (NSUInteger i = self.count - 1; i >= newCapacity; i--) {
-			[self removeObjectAtIndex: i];
-		}
-	}
-
-	// Returned newArrs will be non-zero on successful allocation,
-	// but will be zero on either successful deallocation or on failed allocation
-	id* newArr = realloc( data->arr, (newCapacity * sizeof(id)) );
-
-	// If we wanted to allocate, but it failed, log an error and return without changing anything.
-	if ( (newCapacity != 0) && !newArr ) {
-		LogError(@"Could not change %@ to a capacity of %u elements", self, newCapacity);
-		return NO;
-	}
-	
-	// Otherwise, set the new array pointer and size.
-	data->arr = newArr;
-	data->max = newCapacity;
-	LogTrace(@"Changed %@ to a capcity of %u elements", [self class], newCapacity);
-	return YES;
-}
-
-
-#pragma mark Allocation and initialization
-
-- (id) initWithZeroCapacity {
-	if ( (self = [super init]) ) {
-		data = (ccArray*)malloc( sizeof(ccArray) );
-		data->num = 0;
-		data->max = 0;
-		data->arr = NULL;
-	}
-	return self;
-}
-
-+(id) arrayWithZeroCapacity { return [[[self alloc] initWithZeroCapacity] autorelease]; }
-
-
-#pragma mark Support for unretained objects
-
-- (void) addUnretainedObject: (id) anObject {
-	ccCArrayAppendValueWithResize(data, anObject);
-}
-
-- (void) insertUnretainedObject: (id) anObject atIndex: (NSUInteger) index {
-	ccCArrayEnsureExtraCapacity(data, 1);
-	ccCArrayInsertValueAtIndex(data, anObject, index);
-}
-
-- (void) removeUnretainedObjectIdenticalTo: (id) anObject {
-	ccCArrayRemoveValue(data, anObject);
-}
-
-- (void) removeUnretainedObjectAtIndex: (NSUInteger) index {
-	ccCArrayRemoveValueAtIndex(data, index);
-}
-
-- (void) removeAllObjectsAsUnretained {
-	ccCArrayRemoveAllValues(data);
-}
-
--(void) releaseAsUnretained {
-	[self removeAllObjectsAsUnretained];
-	[self release];
-}
-
-- (NSString*) fullDescription {
-	NSMutableString *desc = [NSMutableString stringWithFormat:@"%@ (", [self class]];
-	if (data->num > 0) {
-		[desc appendFormat:@"\n\t%@", data->arr[0]];
-	}
-	for (NSUInteger i = 1; i < data->num; i++) {
-		[desc appendFormat:@",\n\t%@", data->arr[i]];
-	}
-	[desc appendString:@")"];
-	return desc;
-}
 
 @end
 

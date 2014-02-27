@@ -1,9 +1,9 @@
 /*
  * CC3MeshParticles.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -43,7 +43,7 @@
  * represents a true 3D object that can have length, width and depth, can be moved, rotated
  * and scaled, and can be colored and covered with a texture.
  *
- * Each mesh particle uses a CC3VertexArrayMesh as a template. But, because it is a particle,
+ * Each mesh particle uses a CC3Mesh as a template. But, because it is a particle,
  * this basic mesh template is copied into the mesh arrays of the CC3MeshParticleEmitter, where
  * it is merged with the meshes of the other particles managed by the emitter, and is submitted
  * to the GL engine in a single draw call.
@@ -70,7 +70,7 @@
 @protocol CC3MeshParticleProtocol <CC3CommonVertexArrayParticleProtocol>
 
 /**
- * The CC3VertexArrayMesh used as a template for the mesh of this particle.
+ * The CC3Mesh used as a template for the mesh of this particle.
  *
  * This particle uses the vertices of this mesh as a starting point. The vertices for the particle
  * are copied into the underlying common mesh that supports all particles emitted by a single emitter.
@@ -82,7 +82,7 @@
  * For particles created within the emitter, and emitted automatically, or via the emitParticle
  * method, this property will be assigned by the emitter, usually from a pre-defined template mesh.
  */
-@property(nonatomic, retain) CC3VertexArrayMesh* templateMesh;
+@property(nonatomic, retain) CC3Mesh* templateMesh;
 
 /**
  * Returns the index offset, in the underlying mesh vertex arrays, of the first vertex of this particle.
@@ -131,7 +131,7 @@
  * represents a true 3D object that can have length, width and depth, can be moved, rotated
  * and scaled, and can be colored and covered with a texture.
  *
- * Each mesh particle uses a CC3VertexArrayMesh as a template. But, because it is a particle,
+ * Each mesh particle uses a CC3Mesh as a template. But, because it is a particle,
  * this basic mesh template is copied into the mesh arrays of the CC3MeshParticleEmitter, where
  * it is merged with the meshes of the other particles managed by the emitter, and is submitted
  * to the GL engine in a single draw call.
@@ -153,7 +153,7 @@
  * processing the vertices in the CPU. For larger meshes, it is more effective to use mesh nodes,
  * where the transformations can be carried out by the GPU.
  *
- * Each mesh particle added to or emitted by this mesh emitter uses a CC3VertexArrayMesh as a
+ * Each mesh particle added to or emitted by this mesh emitter uses a CC3Mesh as a
  * template. For particles created by the application outside the emitter, and added to the emitter
  * with the emitParticle: method, the application can directly set the templateMesh property of the
  * mesh particle prior to invoking the emitParticle: method of this emitter. With this technique,
@@ -184,9 +184,9 @@
  * emitter node, and is deallocated automatically when the emitter is released.
  */
 @interface CC3MeshParticleEmitter : CC3CommonVertexArrayParticleEmitter {
-	CC3VertexArrayMesh* particleTemplateMesh;
-	BOOL isParticleTransformDirty : 1;
-	BOOL shouldNotTransformInvisibleParticles : 1;
+	CC3Mesh* _particleTemplateMesh;
+	BOOL _isParticleTransformDirty : 1;
+	BOOL _shouldTransformUnseenParticles : 1;
 }
 
 /**
@@ -223,27 +223,20 @@
  * This property must be set prior to this emitter emitting any particles. It is possible to
  * change the value of this property during emission.
  */
-@property(nonatomic, retain) CC3VertexArrayMesh* particleTemplateMesh;
+@property(nonatomic, strong) CC3Mesh* particleTemplateMesh;
 
 /**
- * A write-only property that configures this emitter to emit particles as defined by the
- * specified template mesh node.
+ * Configures this emitter to emit particles as defined by the specified template mesh node.
  *
- * This is a convenience write-only property method that simply sets the particleTemplateMesh
- * and material properties (including the texture) of this emitter from the corresponding mesh
- * and material properties of the specified mesh node.
+ * This is a convenience method that simply sets the particleTemplateMesh and material 
+ * properties of this emitter (including the texture) from the corresponding properties
+ * of the specified mesh node.
  *
- * When these properties are set, the template mesh is simply retained, but the template material
- * is copied, so that the material of the emitter can be configured independently from that of
- * the template mesh node.
- *
- * The mesh property of the particleTemplate mesh node must be a type of CC3VertexArrayMesh,
- * otherwise an assertion error will be thrown.
- *
- * Since this property is a convenience property for setting other properties, this is a
- * write-only property. Reading this property always returns nil.
+ * When these properties are set, the template mesh is simply retained, but the template 
+ * material is copied, so that the material of the emitter can be configured independently
+ * from that of the template mesh node.
  */
-@property(nonatomic, assign) CC3MeshNode* particleTemplate;
+-(void) setParticleTemplate: (CC3MeshNode*) aParticleTemplate;
 
 /**
  * Template method that sets the templateMesh property of the specified particle.
@@ -278,7 +271,8 @@
  * Refer the the documentation of this method in the parent CC3ParticleEmitter class for a complete
  * description of the emission process.
  *
- * The emitted particle will be assigned the template mesh defined in the particleTemplateMesh property.
+ * If the specified particle does not have a templateMesh, it will be assigned the template mesh
+ * defined in the particleTemplateMesh property of this emitter.
  */
 -(BOOL) emitParticle: (id<CC3MeshParticleProtocol>) aParticle;
 
@@ -313,7 +307,7 @@
 #pragma mark Accessing particles
 
 /** Returns the particle at the specified index within the particles array, cast as a mesh particle. */
--(id<CC3MeshParticleProtocol>) meshParticleAt: (NSUInteger) aParticleIndex;
+-(id<CC3MeshParticleProtocol>) meshParticleAt: (GLuint) aParticleIndex;
 
 
 #pragma mark Transformations
@@ -394,11 +388,11 @@
  * access methods available to mesh nodes.
  */
 @interface CC3MeshParticle : CC3ParticleBase <CC3MeshParticleProtocol> {
-	CC3Rotator* rotator;
-	CC3VertexArrayMesh* templateMesh;
-	CC3Vector location;
-	GLuint firstVertexOffset;
-	GLuint firstVertexIndexOffset;
+	CC3Rotator* _rotator;
+	CC3Mesh* _templateMesh;
+	CC3Vector _location;
+	GLuint _firstVertexOffset;
+	GLuint _firstVertexIndexOffset;
 	BOOL _isAlive : 1;
 	BOOL _isTransformDirty : 1;
 	BOOL _isColorDirty : 1;
@@ -409,7 +403,7 @@
  *
  * For CC3MeshParticle, the emitter must be of type CC3MeshParticleEmitter.
  */
-@property(nonatomic, assign) CC3MeshParticleEmitter* emitter;
+@property(nonatomic, unsafe_unretained) CC3MeshParticleEmitter* emitter;
 
 /**
  * Returns the rotator that manages the local rotation of this particle.
@@ -424,7 +418,7 @@
  * accessed or changed, this property will return a CC3DirectionalRotator. The creation
  * of the type of rotator required to support the various rotations is automatic.
  */
-@property(nonatomic, retain) CC3Rotator* rotator;
+@property(nonatomic, strong) CC3Rotator* rotator;
 
 
 #pragma mark Transformation properties
@@ -935,7 +929,7 @@
  * scaling do not have to carry storage for scaling information.
  */
 @interface CC3ScalableMeshParticle : CC3MeshParticle {
-	CC3Vector scale;
+	CC3Vector _scale;
 }
 
 /**

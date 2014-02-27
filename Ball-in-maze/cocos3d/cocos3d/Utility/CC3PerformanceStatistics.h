@@ -1,9 +1,9 @@
 /*
  * CC3PerformanceStatistics.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2011-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2011-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -46,17 +46,17 @@
  * application, you should reset the performance statistics at least every few seconds.
  */
 @interface CC3PerformanceStatistics : NSObject <NSCopying> {
-	GLuint updatesHandled;
-	ccTime accumulatedUpdateTime;
-	GLuint nodesUpdated;
-	GLuint nodesTransformed;
+	GLuint _updatesHandled;
+	ccTime _accumulatedUpdateTime;
+	GLuint _nodesUpdated;
+	GLuint _nodesTransformed;
 	
-	GLuint framesHandled;
-	ccTime accumulatedFrameTime;
-	GLuint nodesVisitedForDrawing;
-	GLuint nodesDrawn;
-	GLuint drawingCallsMade;
-	GLuint facesPresented;
+	GLuint _framesHandled;
+	ccTime _accumulatedFrameTime;
+	GLuint _nodesVisitedForDrawing;
+	GLuint _nodesDrawn;
+	GLuint _drawingCallsMade;
+	GLuint _facesPresented;
 }
 
 
@@ -84,7 +84,7 @@
 -(void) incrementNodesUpdated;
 
 /**
- * The total number of nodes whose transformMatrix was recalculated
+ * The total number of nodes whose globalTransformMatrix was recalculated
  * since the reset method was last invoked.
  */
 @property(nonatomic, readonly) GLuint nodesTransformed;
@@ -185,7 +185,7 @@
 @property(nonatomic, readonly) GLfloat averageNodesUpdatedPerUpdate;
 
 /**
- * The average nodes whose transformMatrix was recalculated per update, calculated
+ * The average nodes whose globalTransformMatrix was recalculated per update, calculated
  * by dividing the nodesTransformed property by the updatesHandled property.
  */
 @property(nonatomic, readonly) GLfloat averageNodesTransformedPerUpdate;
@@ -281,8 +281,8 @@
  * least every few seconds.
  */
 @interface CC3PerformanceStatisticsHistogram : CC3PerformanceStatistics {
-	GLint updateRateHistogram[kCC3RateHistogramSize];
-	GLint frameRateHistogram[kCC3RateHistogramSize];
+	GLint _updateRateHistogram[kCC3RateHistogramSize];
+	GLint _frameRateHistogram[kCC3RateHistogramSize];
 }
 
 /**

@@ -1,9 +1,9 @@
 /*
  * CC3ControllableLayer.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,61 +30,35 @@
  */
 
 #import "CC3ControllableLayer.h"
-#import "CC3IOSExtensions.h"
 #import "CC3CC2Extensions.h"
+#import "CC3OpenGL.h"
 #import "CC3Logging.h"
 
 
 @implementation CC3ControllableLayer
 
-@synthesize isColored=isColored_, alignContentSizeWithDeviceOrientation=alignContentSizeWithDeviceOrientation_;
-
--(void) dealloc {
-	controller_ = nil;		// delegate - not retained
-    [super dealloc];
+/** If not set directly, try to retrieve it from an ancestor controllable node. */
+-(CC3ViewController*) controller {
+	if (!_controller) _controller = super.controller;
+	CC3Assert(_controller, @"%@ requires a controller.", self);
+	return _controller;
 }
 
-// Override to store the controller in the unretained iVar
--(UIViewController*) controller { return controller_; }
--(void) setController: (UIViewController*) aController { controller_ = aController; }
+-(void) setController: (CC3ViewController*) aController { _controller = aController; }
 
 
-#pragma mark Drawing
+#pragma mark Allocation and initialization
 
-// Initializes without a colored background.
-// Must avoid super init because as of cocos2d 1.1, it sets the contentSize to zero.
-- (id) init {
-	CGSize s = CCDirector.sharedDirector.winSize;
-	if( (self = [super initWithColor: ccc4(0,0,0,0) width: s.width  height: s.height]) ) {
-		isColored_ = NO;
-		[self initInitialState];
+-(id) init {
+	if( (self = [super init]) ) {
+		[self initInitialState];		// Deprecated legacy
 	}
 	return self;
 }
 
-// Initializes with a colored background.
-- (id) initWithColor:(ccColor4B)color width:(GLfloat)w  height:(GLfloat) h {
-	LogTrace(@"%@ creating with width: %.1f height: %.1f", self, w, h);
-	if( (self = [super initWithColor: color width: w  height: h]) ) {
-		isColored_ = YES;
-		[self initInitialState];
-	}
-	return self;
-}
++(id) layer { return [[self alloc] init]; }
 
-// Initializes the instance, including setting the alignContentSizeWithDeviceOrientation property to YES.
--(void) initInitialState {
-	alignContentSizeWithDeviceOrientation_ = YES;
-}
-
-
-#pragma mark Drawing
-
-/**
- * Superclass template method override. If this layer has been configured with a background color,
- * and is not overlaying the device camera, the background color blend is drawn, otherwise it is not.
- */
--(void) draw { if(self.isColored && !self.isOverlayingDeviceCamera) [super draw]; }
+-(NSString*) description { return [NSString stringWithFormat: @"%@", [self class]]; }
 
 
 #pragma mark Device orientation support
@@ -97,64 +71,58 @@
 
 -(void) didUpdateContentSizeFrom: (CGSize) oldSize {}
 
-/**
- * Invoked by the CC3UIViewController when the device orientation has changed. If configured to align
- * with the device orientation, transpose the contentSize when flipping between portrait and landscape.
- */
--(void) viewDidRotateFrom: (UIInterfaceOrientation) oldOrientation to: (UIInterfaceOrientation) newOrientation {
-	
-	if(self.alignContentSizeWithDeviceOrientation) {
-		// Explicit tests both ways, since xor or == will not be accurate if functions
-		// return truth values that are not exactly 1.
-		BOOL isChangingAspect = ((UIInterfaceOrientationIsLandscape(oldOrientation) &&
-								  UIInterfaceOrientationIsPortrait(newOrientation)) ||
-								 (UIInterfaceOrientationIsPortrait(oldOrientation) &&
-								  UIInterfaceOrientationIsLandscape(newOrientation)));
-		if (isChangingAspect) {
-			CGSize cs = self.contentSize;
-			self.contentSize = CGSizeMake(cs.height, cs.width);
-			LogTrace(@"%@ changing orientation aspect from %@ to %@", self,
-					 NSStringFromUIDeviceOrientation(oldOrientation),
-					 NSStringFromUIDeviceOrientation(newOrientation));
-		}
-	}
-	
-	// Propagate to child nodes
-	[super viewDidRotateFrom: oldOrientation to: newOrientation];
-}
-
 
 #pragma mark Device camera support
 
--(BOOL) isOverlayingDeviceCamera { return controller_ ? controller_.isOverlayingDeviceCamera : NO; }
+-(BOOL) isOverlayingDeviceCamera { return self.controller.isOverlayingDeviceCamera; }
 
 // If this layer is overlaying the device camera, the GL clear color is
 // set to transparent black, otherwise it is set to opaque black.
 -(void) onEnter {
 	[super onEnter];
-	if(self.isOverlayingDeviceCamera) {
-		glClearColor(0.0, 0.0, 0.0, 0.0);		// Transparent black
-	} else {
-		glClearColor(0.0, 0.0, 0.0, 1.0);		// Opaque black
-	}
+	CC3OpenGL.sharedGL.clearColor = self.isOverlayingDeviceCamera ? kCCC4FBlackTransparent : kCCC4FBlack;
 }
 
-// Keep the compiler happy with method re-declaration for documentation
--(void) onExit { [super onExit]; }
+
+#pragma mark Deprecated functionality
+
+-(BOOL) alignContentSizeWithDeviceOrientation { return NO; }
+-(void) setAlignContentSizeWithDeviceOrientation: (BOOL) alignContentSizeWithDeviceOrientation {}
+-(id) initWithColor: (ccColor4B) color { return [self init]; }
++(id) layerWithColor: (ccColor4B) color { return [[self alloc] init]; }
+-(void) initInitialState {}
+-(BOOL) isColored { return NO; }
+-(id) initWithController: (CC3ViewController*) controller {
+	if( (self = [self init]) ) {
+		self.controller = controller;
+	}
+	return self;
+}
++(id) layerWithController: (CC3ViewController*) controller {
+	return [[self alloc] initWithController: controller];
+}
+
 
 @end
-
 
 
 #pragma mark -
-#pragma mark UIViewController extension support
+#pragma mark CCNode extension to support controlling nodes from a CC3ViewController
 
-@implementation UIViewController (CC3ControllableLayer)
+@implementation CCNode (CC3ViewController)
 
--(BOOL) isOverlayingDeviceCamera { return NO; }
+-(CC3ViewController*) controller { return self.parent.controller; }
+
+-(void) setController: (CC3ViewController*) aController {
+	for (CCNode* child in self.children) child.controller = aController;
+}
+
+-(void) viewDidRotateFrom: (UIInterfaceOrientation) oldOrientation to: (UIInterfaceOrientation) newOrientation {
+	for (CCNode* child in self.children)
+		[child viewDidRotateFrom: oldOrientation to: newOrientation];
+}
 
 @end
-
 
 
 

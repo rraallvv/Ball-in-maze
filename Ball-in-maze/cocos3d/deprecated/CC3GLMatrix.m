@@ -1,9 +1,9 @@
 /*
  * CC3GLMatrix.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -60,7 +60,7 @@
 	return self;
 }
 
-+(id) matrix { return [[[self alloc] init] autorelease]; }
++(id) matrix { return [[self alloc] init]; }
 
 -(id) initIdentity {
 	if( (self = [self initParent]) ) {
@@ -69,7 +69,7 @@
 	return self;
 }
 
-+(id) identity { return [[[self alloc] initIdentity] autorelease]; }
++(id) identity { return [[self alloc] initIdentity]; }
 
 -(id) initFromGLMatrix: (GLfloat*) aGLMtx {
 	if( (self = [self initParent]) ) {
@@ -79,7 +79,7 @@
 }
 
 +(id) matrixFromGLMatrix: (GLfloat*) aGLMtx {
-	return [[[self alloc] initFromGLMatrix: aGLMtx] autorelease];
+	return [[self alloc] initFromGLMatrix: aGLMtx];
 }
 
 -(id) initWithFirstElement: (GLfloat) e00 remainingElements: (va_list) args {
@@ -123,7 +123,7 @@
 }
 
 +(id) matrixOnGLMatrix: (GLfloat*) aGLMtx {
-	return [[[self alloc] initOnGLMatrix: aGLMtx] autorelease];
+	return [[self alloc] initOnGLMatrix: aGLMtx];
 }
 
 @end
@@ -154,7 +154,6 @@
 
 // Instantiate the appropriate concrete cluster class.
 -(id) init {
-	[self release];
 	return [[CC3GLArrayMatrix alloc] init];
 }
 
@@ -163,7 +162,6 @@
 
 // Instantiate the appropriate concrete cluster class.
 -(id) initIdentity {
-	[self release];
 	return [[CC3GLArrayMatrix alloc] initIdentity];
 }
 
@@ -174,7 +172,6 @@
 
 // Instantiate the appropriate concrete cluster class.
 -(id) initFromGLMatrix: (GLfloat*) aGLMtx {
-	[self release];
 	return [[CC3GLArrayMatrix alloc] initFromGLMatrix: aGLMtx];
 }
 
@@ -191,7 +188,6 @@
 
 // Instantiate the appropriate concrete cluster class.
 -(id) initWithFirstElement: (GLfloat) e00 remainingElements: (va_list) args {
-	[self release];
 	return [[CC3GLArrayMatrix alloc] initWithFirstElement: e00 remainingElements: args];
 }
 
@@ -210,12 +206,11 @@
 	va_start(args, e00);
 	CC3GLMatrixDeprecated* mtx = [[CC3GLArrayMatrix alloc] initWithFirstElement: e00 remainingElements: args];
 	va_end(args);
-	return [mtx autorelease];
+	return mtx;
 }
 
 // Instantiate the appropriate concrete cluster class.
 -(id) initOnGLMatrix: (GLfloat*) aGLMtx {
-	[self release];
 	return [[CC3GLPointerMatrix alloc] initOnGLMatrix: aGLMtx];
 }
 
@@ -225,7 +220,7 @@
 }
 
 - (id) copyWithZone: (NSZone*) zone {
-	return [[CC3GLArrayMatrix matrixFromGLMatrix: self.glMatrix] retain];
+	return [CC3GLArrayMatrix matrixFromGLMatrix: self.glMatrix];
 }
 
 -(NSString*) description {
@@ -318,7 +313,7 @@
 
 -(void) populateFromRotation: (CC3Vector) aRotation {
 	if ( !CC3VectorsAreEqual(aRotation, kCC3VectorZero) ) {
-		kmMat4RotationYXZ(self.glMatrix, aRotation);
+		CC3KMMat4RotationYXZ(self.glMatrix, aRotation);
 		isIdentity = NO;
 	} else {
 		[self populateIdentity];
@@ -327,7 +322,7 @@
 
 -(void) populateFromQuaternion: (CC3Quaternion) aQuaternion {
 	if ( !CC3QuaternionsAreEqual(aQuaternion, kCC3QuaternionIdentity) ) {
-		kmMat4RotationQuaternion(self.glMatrix, aQuaternion);
+		CC3KMMat4RotationQuaternion(self.glMatrix, aQuaternion);
 		isIdentity = NO;
 	} else {
 		[self populateIdentity];
@@ -442,7 +437,7 @@ static const GLfloat identityContents[] = { 1.0f, 0.0f, 0.0f, 0.0f,
 
 +(void) populate: (GLfloat*) aGLMatrix fromRotation: (CC3Vector) aRotation {
 	if ( !CC3VectorsAreEqual(aRotation, kCC3VectorZero) ) {
-		kmMat4RotationYXZ(aGLMatrix, aRotation);
+		CC3KMMat4RotationYXZ(aGLMatrix, aRotation);
 	} else {
 		[self populateIdentity: aGLMatrix];
 	}
@@ -450,7 +445,7 @@ static const GLfloat identityContents[] = { 1.0f, 0.0f, 0.0f, 0.0f,
 
 +(void) populate: (GLfloat*) aGLMatrix fromQuaternion: (CC3Quaternion) aQuaternion {
 	if ( !CC3QuaternionsAreEqual(aQuaternion, kCC3QuaternionIdentity) ) {
-		kmMat4RotationQuaternion(aGLMatrix, aQuaternion);
+		CC3KMMat4RotationQuaternion(aGLMatrix, aQuaternion);
 	} else {
 		[self populateIdentity: aGLMatrix];
 	}
@@ -716,7 +711,7 @@ static const GLfloat identityContents[] = { 1.0f, 0.0f, 0.0f, 0.0f,
 		radY = -atan2f(-aGLMatrix[4], aGLMatrix[0]);
 		radZ = 0.0;
 	}	
-	return cc3v(RadiansToDegrees(radX), RadiansToDegrees(radY), RadiansToDegrees(radZ));
+	return cc3v(CC3RadToDeg(radX), CC3RadToDeg(radY), CC3RadToDeg(radZ));
 }
 
 // Assumes ZYX euler order
@@ -752,7 +747,7 @@ static const GLfloat identityContents[] = { 1.0f, 0.0f, 0.0f, 0.0f,
 		radZ = -atan2f(-aGLMatrix[9], aGLMatrix[5]);
 		radX = 0.0;
 	}	
-	return cc3v(RadiansToDegrees(radX), RadiansToDegrees(radY), RadiansToDegrees(radZ));
+	return cc3v(CC3RadToDeg(radX), CC3RadToDeg(radY), CC3RadToDeg(radZ));
 }
 
 /**
@@ -834,20 +829,6 @@ static const GLfloat identityContents[] = { 1.0f, 0.0f, 0.0f, 0.0f,
 	}
 	return quat;
 }
-
-/*
-+(CC3Vector) extractForwardDirectionFrom: (GLfloat*) aGLMatrix {
-	return cc3v(-aGLMatrix[8], -aGLMatrix[9], -aGLMatrix[10]);
-}
-
-+(CC3Vector) extractUpDirectionFrom: (GLfloat*) aGLMatrix {
-	return cc3v(aGLMatrix[4], aGLMatrix[5], aGLMatrix[6]);
-}
-
-+(CC3Vector) extractRightDirectionFrom: (GLfloat*) aGLMatrix {
-	return cc3v(aGLMatrix[0], aGLMatrix[1], aGLMatrix[2]);
-}
-*/
 
 +(CC3Vector) extractForwardDirectionFrom: (GLfloat*) aGLMatrix {
 	return CC3VectorNegate(*(CC3Vector*)&aGLMatrix[8]);
@@ -1005,43 +986,43 @@ static const GLfloat identityContents[] = { 1.0f, 0.0f, 0.0f, 0.0f,
 		  scaleBy: (CC3Vector) aScale {
 
 	GLfloat tmpMtx[16];
-	kmMat4Transformation(tmpMtx, aTranslation, aRotation, aScale);
+	CC3KMMat4Transformation(tmpMtx, aTranslation, aRotation, aScale);
 	[self multiply: aGLMatrix byMatrix: tmpMtx];
 }
 
 +(void) rotateYXZ: (GLfloat*) aGLMatrix by: (CC3Vector) aRotation {
 	GLfloat tmpMtx[16];
-	kmMat4RotationYXZ(tmpMtx, aRotation);
+	CC3KMMat4RotationYXZ(tmpMtx, aRotation);
 	[self leftMultiply: aGLMatrix byMatrix: tmpMtx];
 }
 
 +(void) rotateZYX: (GLfloat*) aGLMatrix by: (CC3Vector) aRotation {
 	GLfloat tmpMtx[16];
-	kmMat4RotationZYX(tmpMtx, aRotation);
+	CC3KMMat4RotationZYX(tmpMtx, aRotation);
 	[self leftMultiply: aGLMatrix byMatrix: tmpMtx];
 }
 
 +(void) rotate: (GLfloat*) aGLMatrix byX: (GLfloat) degrees {
 	GLfloat tmpMtx[16];
-	kmMat4RotationX(tmpMtx, degrees);
+	CC3KMMat4RotationX(tmpMtx, degrees);
 	[self leftMultiply: aGLMatrix byMatrix: tmpMtx];
 }
 
 +(void) rotate: (GLfloat*) aGLMatrix byY: (GLfloat) degrees {
 	GLfloat tmpMtx[16];
-	kmMat4RotationY(tmpMtx, degrees);
+	CC3KMMat4RotationY(tmpMtx, degrees);
 	[self leftMultiply: aGLMatrix byMatrix: tmpMtx];
 }
 
 +(void) rotate: (GLfloat*) aGLMatrix byZ: (GLfloat) degrees {
 	GLfloat tmpMtx[16];
-	kmMat4RotationZ(tmpMtx, degrees);
+	CC3KMMat4RotationZ(tmpMtx, degrees);
 	[self leftMultiply: aGLMatrix byMatrix: tmpMtx];
 }
 
 +(void) rotate: (GLfloat*) aGLMatrix byQuaternion: (CC3Quaternion) aQuaternion {
 	GLfloat tmpMtx[16];
-	kmMat4RotationQuaternion(tmpMtx, aQuaternion);
+	CC3KMMat4RotationQuaternion(tmpMtx, aQuaternion);
 	[self leftMultiply: aGLMatrix byMatrix: tmpMtx];
 }
 
@@ -1270,13 +1251,11 @@ static const GLfloat identityContents[] = { 1.0f, 0.0f, 0.0f, 0.0f,
 }
 
 +(CC3Vector) transformLocation: (CC3Vector) aLocation withMatrix: (GLfloat*) aGLMatrix {
-	return CC3VectorFromTruncatedCC3Vector4([self transformHomogeneousVector: CC3Vector4FromCC3Vector(aLocation, 1.0)
-																  withMatrix: aGLMatrix]);
+	return [self transformHomogeneousVector: CC3Vector4FromLocation(aLocation) withMatrix: aGLMatrix].v;
 }
 
 +(CC3Vector) transformDirection: (CC3Vector) aDirection withMatrix: (GLfloat*) aGLMatrix {
-	return CC3VectorFromTruncatedCC3Vector4([self transformHomogeneousVector: CC3Vector4FromCC3Vector(aDirection, 0.0)
-																  withMatrix: aGLMatrix]);
+	return [self transformHomogeneousVector: CC3Vector4FromDirection(aDirection) withMatrix: aGLMatrix].v;
 }
 
 +(CC3Vector4) transformHomogeneousVector: (CC3Vector4) aVector withMatrix: (GLfloat*) aGLMatrix {

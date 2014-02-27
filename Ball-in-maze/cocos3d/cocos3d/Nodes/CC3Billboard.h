@@ -1,9 +1,9 @@
 /*
  * CC3Billboard.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -33,7 +33,6 @@
 #import "CC3BoundingVolumes.h"
 #import "CC3MeshNode.h"
 #import "CCNode.h"
-#import "CCParticleSystemPoint.h"
 
 
 /**
@@ -87,23 +86,25 @@
  * the encapsulated 2D CCNode billboard. When reading the color and opacity properties
  * of the CC3Billboard, the value returned will be that of the 2D CCNode.
  *
- * A CC3Billboard can, and should, have a bounding volume, but the bounding volume
- * must be an instance of a subclass of CC3NodeBoundingArea, which maps the 2D boundary
- * of the 2D node into the 3D scene, and when shouldDrawAs2DOverlay is YES, handles
- * testing the 2D bounds of the 2D node against the bounds of the 2D drawing plane. 
+ * A CC3Billboard can, and should, have a bounding volume, but the bounding volume must be an
+ * instance of a subclass of CC3NodeBoundingArea, which maps the 2D boundary of the 2D node
+ * into the 3D scene, and when shouldDrawAs2DOverlay is YES, handles testing the 2D bounds of
+ * the 2D node against the bounds of the 2D drawing plane. The default bounding volume, as
+ * returned by the defaultBoundingVolume method, and created when the createBoundingVolume
+ * method is invoked, is an instance of CC3BillboardBoundingBoxArea.
  */
 @interface CC3Billboard : CC3MeshNode {
-	CCNode* billboard;
-	CGRect billboardBoundingRect;
-	CGPoint offsetPosition;
-	GLfloat unityScaleDistance;
-	CGPoint minimumBillboardScale;
-	CGPoint maximumBillboardScale;
-	GLuint textureUnitIndex;
-	BOOL shouldNormalizeScaleToDevice : 1;
-	BOOL shouldDrawAs2DOverlay : 1;
-	BOOL shouldAlwaysMeasureBillboardBoundingRect : 1;
-	BOOL shouldMaximizeBillboardBoundingRect : 1;
+	CCNode* _billboard;
+	CGRect _billboardBoundingRect;
+	CGPoint _offsetPosition;
+	GLfloat _unityScaleDistance;
+	CGPoint _minimumBillboardScale;
+	CGPoint _maximumBillboardScale;
+	GLuint _textureUnitIndex;
+	BOOL _shouldNormalizeScaleToDevice : 1;
+	BOOL _shouldDrawAs2DOverlay : 1;
+	BOOL _shouldAlwaysMeasureBillboardBoundingRect : 1;
+	BOOL _shouldMaximizeBillboardBoundingRect : 1;
 	BOOL _shouldUpdateUnseenBillboard : 1;
 	BOOL _billboardIsPaused : 1;
 }
@@ -112,7 +113,7 @@
 @property(nonatomic, readonly) BOOL isBillboard;
 
 /** The 2D artifact that this node will display. This can be any CCNode subclass. */
-@property(nonatomic, retain) CCNode* billboard;
+@property(nonatomic, strong) CCNode* billboard;
 
 /**
  * Indicates whether this instance should be drawn in 2D as an overlay on top of
@@ -174,7 +175,7 @@
  * the 2D node is embedded in the 3D scene, and the following applies:
  *  - For static 2D nodes, such as buttons, 2D sprites, or static text labels, the
  *    simplest thing to do is leave this property with the default value and allow
- *    it to be lazily measureed from the 2D node the first time it is accessed, and
+ *    it to be lazily measured from the 2D node the first time it is accessed, and
  *    cached for subsequent accesses.
  *  - For 2D nodes whose boundary change under app control, such as a text label,
  *    you can also allow this property to be lazily initialized, and then use the
@@ -424,7 +425,7 @@
  *
  * The value of this property must be between zero and one less than the maximum number
  * of supported texture units. The maximum number of texture units is platform dependent,
- * and can be read from [CC3OpenGLES11Engine engine].platform.maxTextureUnits.value.
+ * and can be read from the CC3OpenGL.sharedGL.maxNumberOfTextureUnits property.
  */
 @property(nonatomic, assign) GLuint textureUnitIndex;
 
@@ -441,6 +442,12 @@
  * Devices with smaller screen heights in pixels will return a value less than 1.0
  */
 +(GLfloat) deviceScaleFactor;
+
+
+#pragma mark Bounding volumes
+
+/** The bounding volume of this node must be an instance of CC3NodeBoundingArea or one of its subclasses. */
+@property(nonatomic, strong) CC3NodeBoundingArea* boundingVolume;
 
 
 #pragma mark Allocation and initialization
@@ -565,14 +572,13 @@
 #pragma mark CC3BillboardBoundingBoxArea interface
 
 /**
- * A CC3NodeBoundingArea, used exclusively with CC3Billboards, that uses the
- * billboardBoundingRect property of the CC3Billboard as the bounding area, and checks
- * the bounding area against a given bounding box (typically from the CC3Layer), using
- * the doesIntersectBounds: method.
+ * A CC3NodeBoundingArea, used exclusively with CC3Billboards, that uses the billboardBoundingRect
+ * property of the CC3Billboard as the bounding area, and checks the bounding area against a given
+ * bounding box (typically from the CC3Layer), using the doesIntersectBounds: method.
  */
 @interface CC3BillboardBoundingBoxArea : CC3NodeBoundingArea {
-	CC3Vector vertices[4];
-	CC3Plane planes[6];
+	CC3Vector _vertices[4];
+	CC3Plane _planes[6];
 }
 
 /** @deprecated Use the superclass vertices property instead. */
@@ -604,7 +610,7 @@
  *     be disabled during the drawing of the particles.
  */
 @interface CC3ParticleSystemBillboard : CC3Billboard {
-	CC3AttenuationCoefficients particleSizeAttenuationCoefficients;
+	CC3AttenuationCoefficients _particleSizeAttenuation;
 }
 
 /**
@@ -613,10 +619,12 @@
  * 1/sqrt(a + b * r + c * r * r), where r is the radial distance from the particle to the camera,
  * and a, b and c are the coefficients from this property.
  *
- * The initial value of this property is kCC3ParticleSizeAttenuationNone, indicating no attenuation
- * with distance.
+ * The initial value of this property is kCC3AttenuationNone, indicating no attenuation with distance.
  */
-@property(nonatomic, assign) CC3AttenuationCoefficients particleSizeAttenuationCoefficients;
+@property(nonatomic, assign) CC3AttenuationCoefficients particleSizeAttenuation;
+
+/** @deprecated Property renamed to particleSizeAttenuation. */
+@property(nonatomic, assign) CC3AttenuationCoefficients particleSizeAttenuationCoefficients DEPRECATED_ATTRIBUTE;
 
 /**
  * Indicates whether scheduled updates of the contained 2D billboard should continue when this node
@@ -689,8 +697,13 @@
  * Returns a scaling factor to be applied to this node when it is set as the
  * 2D billboard in a CC3Billboard.
  *
- * The default value is 1.0, indicating no scaling will occur.
- * Subclasses will override where necessary.
+ * The value returned depends on the version of cocos2d that is linked and whether
+ * the app is rendering in high-resolution for a Retina display on iOS.
+ *
+ * If the app is using cocos2d 1.x and is rendering in high-resolution to a Retina
+ * display on an iOS device, this property returns 0.5. Otherwise it returns 1.0.
+ *
+ * Subclasses may override.
  */
 @property(nonatomic, readonly) CGFloat billboard3DContentScaleFactor;
 

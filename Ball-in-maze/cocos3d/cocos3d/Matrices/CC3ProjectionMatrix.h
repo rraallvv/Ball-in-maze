@@ -1,9 +1,9 @@
 /*
  * CC3ProjectionMatrix.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -42,7 +42,7 @@
  * in a CC3Matrix4x4 structure of 16 GLfloat elements in column-major order.
  */
 @interface CC3ProjectionMatrix : CC3Matrix {
-	CC3Matrix4x4 contents;
+	CC3Matrix4x4 _contents;
 }
 
 @end

@@ -1,9 +1,9 @@
 /*
  * CC3PODResourceNode.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -34,15 +34,33 @@
 
 @implementation CC3PODResourceNode
 
+@synthesize animationFrameCount=_animationFrameCount;
+@synthesize animationFrameRate=_animationFrameRate;
+
 -(Class) resourceClass { return [CC3PODResource class]; }
+
+/** Overridden to extract the animation frame count and rate. */
+-(void) populateFromResource: (CC3PODResource*) resource {
+	[super populateFromResource: resource];
+	
+	_animationFrameCount = resource.animationFrameCount;
+	_animationFrameRate = resource.animationFrameRate;
+}
+
+-(void) populateFrom: (CC3PODResourceNode*) another {
+	[super populateFrom: another];
+	
+	_animationFrameCount = another.animationFrameCount;
+	_animationFrameRate = another.animationFrameRate;
+}
 
 @end
 
 
 #pragma mark -
-#pragma mark CC3Scene extensions to support PVR POD content
+#pragma mark CC3Node extensions to support PVR POD content
 
-@implementation CC3Scene (PVRPOD)
+@implementation CC3Node (PVRPODRez)
 
 -(void) addContentFromPODFile: (NSString*) aFilepath {
 	[self addChild: [CC3PODResourceNode nodeFromFile: aFilepath]];

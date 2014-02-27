@@ -1,9 +1,9 @@
 /*
  * CC3Matrix4x3.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -90,13 +90,7 @@ typedef union {
 } CC3Matrix4x3;
 
 /** Returns a string description of the specified CC3Matrix4x3, including contents. */
-static inline NSString* NSStringFromCC3Matrix4x3(CC3Matrix4x3* mtxPtr) {
-	NSMutableString* desc = [NSMutableString stringWithCapacity: 200];
-	[desc appendFormat: @"\n\t[%.6f, %.6f, %.6f, %.6f", mtxPtr->c1r1, mtxPtr->c2r1, mtxPtr->c3r1, mtxPtr->c4r1];
-	[desc appendFormat: @"\n\t %.6f, %.6f, %.6f, %.6f", mtxPtr->c1r2, mtxPtr->c2r2, mtxPtr->c3r2, mtxPtr->c4r2];
-	[desc appendFormat: @"\n\t %.6f, %.6f, %.6f, %.6f]", mtxPtr->c1r3, mtxPtr->c2r3, mtxPtr->c3r3, mtxPtr->c4r3];
-	return desc;
-}
+NSString* NSStringFromCC3Matrix4x3(CC3Matrix4x3* mtxPtr);
 
 
 #pragma mark Heterogeneous matrix population
@@ -231,63 +225,24 @@ static inline void CC3Matrix4x3PopulateFromTranslation(CC3Matrix4x3* mtx, const 
  * Populates the specified matrix as a orthographic projection matrix with the specified
  * frustum dimensions.
  */
-static inline void CC3Matrix4x3PopulateOrthoFrustum(CC3Matrix4x3* mtx,
-													const GLfloat left,
-													const GLfloat right,
-													const GLfloat top,
-													const GLfloat bottom,
-													const GLfloat near,
-													const GLfloat far) {
-	GLfloat ooWidth = 1.0f / (right - left);
-	GLfloat ooHeight = 1.0f / (top - bottom);
-	GLfloat ooDepth = 1.0f / (far - near);
-	
-	mtx->c1r1 = 2.0f * ooWidth;
-	mtx->c1r2 = 0.0f;
-	mtx->c1r3 = 0.0f;
-	
-	mtx->c2r1 = 0.0f;
-	mtx->c2r2 = 2.0f * ooHeight;
-	mtx->c2r3 = 0.0f;
-	
-	mtx->c3r1 = 0.0f;
-	mtx->c3r2 = 0.0f;
-	mtx->c3r3 = -2.0f * ooDepth;
-	
-	mtx->c4r1 = -(right + left) * ooWidth;
-	mtx->c4r2 = -(top + bottom) * ooHeight;
-	mtx->c4r3 = -(far + near) * ooDepth;
-}
+void CC3Matrix4x3PopulateOrthoFrustum(CC3Matrix4x3* mtx,
+									  const GLfloat left,
+									  const GLfloat right,
+									  const GLfloat top,
+									  const GLfloat bottom,
+									  const GLfloat near,
+									  const GLfloat far);
 
 /**
  * Populates the specified matrix as an infinite-depth orthographic projection matrix with the
  * specified frustum dimensions, where the far clipping plane is set at an infinite distance.
  */
-static inline void CC3Matrix4x3PopulateInfiniteOrthoFrustum(CC3Matrix4x3* mtx,
-															const GLfloat left,
-															const GLfloat right,
-															const GLfloat top,
-															const GLfloat bottom,
-															const GLfloat near) {
-	GLfloat ooWidth = 1.0f / (right - left);
-	GLfloat ooHeight = 1.0f / (top - bottom);
-	
-	mtx->c1r1 = 2.0f * ooWidth;
-	mtx->c1r2 = 0.0f;
-	mtx->c1r3 = 0.0f;
-	
-	mtx->c2r1 = 0.0f;
-	mtx->c2r2 = 2.0f * ooHeight;
-	mtx->c2r3 = 0.0f;
-	
-	mtx->c3r1 = 0.0f;
-	mtx->c3r2 = 0.0f;
-	mtx->c3r3 = 0.0f;
-	
-	mtx->c4r1 = -(right + left) * ooWidth;
-	mtx->c4r2 = -(top + bottom) * ooHeight;
-	mtx->c4r3 = -1.0f;
-}
+void CC3Matrix4x3PopulateInfiniteOrthoFrustum(CC3Matrix4x3* mtx,
+											  const GLfloat left,
+											  const GLfloat right,
+											  const GLfloat top,
+											  const GLfloat bottom,
+											  const GLfloat near);
 
 
 #pragma mark Accessing vector content
@@ -360,7 +315,7 @@ static inline CC3Vector CC3Matrix4x3ExtractRotationZYX(const CC3Matrix4x3* mtx) 
 }
 
 /**
- * Extracts and returns the rotation quaternion from the specified matrix.
+ * Extracts and returns a unit rotation quaternion from the specified matrix.
  *
  * This algorithm uses the technique of finding the largest combination of the diagonal elements
  * to select which quaternion element (w,x,y,z) to solve for from the diagonal, and then using
@@ -381,41 +336,23 @@ static inline CC3Quaternion CC3Matrix4x3ExtractQuaternion(const CC3Matrix4x3* mt
 
 /** Extracts and returns the 'forward' direction vector from the rotation component of the specified matrix. */
 static inline CC3Vector CC3Matrix4x3ExtractForwardDirection(const CC3Matrix4x3* mtx) {
-	return CC3Matrix3x3ExtractForwardDirection((CC3Matrix3x3*) mtx);
+	return CC3VectorNegate(mtx->col3);
 }
 
 /** Extracts and returns the 'up' direction vector from the rotation component of the specified matrix. */
-static inline CC3Vector CC3Matrix4x3ExtractUpDirection(const CC3Matrix4x3* mtx) {
-	return CC3Matrix3x3ExtractUpDirection((CC3Matrix3x3*) mtx);
-}
+static inline CC3Vector CC3Matrix4x3ExtractUpDirection(const CC3Matrix4x3* mtx) { return mtx->col2; }
 
 /** Extracts and returns the 'right' direction vector from the rotation component of the specified matrix. */
-static inline CC3Vector CC3Matrix4x3ExtractRightDirection(const CC3Matrix4x3* mtx) {
-	return CC3Matrix3x3ExtractRightDirection((CC3Matrix3x3*) mtx);
-}
+static inline CC3Vector CC3Matrix4x3ExtractRightDirection(const CC3Matrix4x3* mtx) { return mtx->col1; }
+
+/** Extracts and returns the translation vector from the specified matrix. */
+static inline CC3Vector CC3Matrix4x3ExtractTranslation(const CC3Matrix4x3* mtx) { return mtx->col4; }
 
 
 #pragma mark Matrix transformations
 
 /** Multiplies mL on the left by mR on the right, and stores the result in mOut. */
-static inline void CC3Matrix4x3Multiply(CC3Matrix4x3* mOut, const CC3Matrix4x3* mL, const CC3Matrix4x3* mR) {
-	
-	mOut->c1r1 = (mL->c1r1 * mR->c1r1) + (mL->c2r1 * mR->c1r2) + (mL->c3r1 * mR->c1r3);
-	mOut->c1r2 = (mL->c1r2 * mR->c1r1) + (mL->c2r2 * mR->c1r2) + (mL->c3r2 * mR->c1r3);
-	mOut->c1r3 = (mL->c1r3 * mR->c1r1) + (mL->c2r3 * mR->c1r2) + (mL->c3r3 * mR->c1r3);
-	
-	mOut->c2r1 = (mL->c1r1 * mR->c2r1) + (mL->c2r1 * mR->c2r2) + (mL->c3r1 * mR->c2r3);
-	mOut->c2r2 = (mL->c1r2 * mR->c2r1) + (mL->c2r2 * mR->c2r2) + (mL->c3r2 * mR->c2r3);
-	mOut->c2r3 = (mL->c1r3 * mR->c2r1) + (mL->c2r3 * mR->c2r2) + (mL->c3r3 * mR->c2r3);
-	
-	mOut->c3r1 = (mL->c1r1 * mR->c3r1) + (mL->c2r1 * mR->c3r2) + (mL->c3r1 * mR->c3r3);
-	mOut->c3r2 = (mL->c1r2 * mR->c3r1) + (mL->c2r2 * mR->c3r2) + (mL->c3r2 * mR->c3r3);
-	mOut->c3r3 = (mL->c1r3 * mR->c3r1) + (mL->c2r3 * mR->c3r2) + (mL->c3r3 * mR->c3r3);
-	
-	mOut->c4r1 = (mL->c1r1 * mR->c4r1) + (mL->c2r1 * mR->c4r2) + (mL->c3r1 * mR->c4r3) + mL->c4r1;
-	mOut->c4r2 = (mL->c1r2 * mR->c4r1) + (mL->c2r2 * mR->c4r2) + (mL->c3r2 * mR->c4r3) + mL->c4r2;
-	mOut->c4r3 = (mL->c1r3 * mR->c4r1) + (mL->c2r3 * mR->c4r2) + (mL->c3r3 * mR->c4r3) + mL->c4r3;
-}
+void CC3Matrix4x3Multiply(CC3Matrix4x3* mOut, const CC3Matrix4x3* mL, const CC3Matrix4x3* mR);
 
 /**
  * Rotates the specified matrix by the specified Euler angles in degrees. Rotation is performed
@@ -498,14 +435,23 @@ static inline void CC3Matrix4x3TranslateBy(CC3Matrix4x3* mtx, CC3Vector aTransla
  *
  * The specified matrix and the original specified vector remain unchanged.
  */
-static inline CC3Vector4 CC3Matrix4x3TransformCC3Vector4(const CC3Matrix4x3* mtx, CC3Vector4 v) {
-	CC3Vector4 vOut;
-	vOut.x = (mtx->c1r1 * v.x) + (mtx->c2r1 * v.y) + (mtx->c3r1 * v.z) + (mtx->c4r1 * v.w);
-	vOut.y = (mtx->c1r2 * v.x) + (mtx->c2r2 * v.y) + (mtx->c3r2 * v.z) + (mtx->c4r2 * v.w);
-	vOut.z = (mtx->c1r3 * v.x) + (mtx->c2r3 * v.y) + (mtx->c3r3 * v.z) + (mtx->c4r3 * v.w);
-	vOut.w = v.w;
-	return vOut;
-}
+CC3Vector4 CC3Matrix4x3TransformCC3Vector4(const CC3Matrix4x3* mtx, CC3Vector4 v);
+
+/**
+ * Transforms the specified 3D location vector using the specified matrix, and returns the
+ * transformed vector. The location is transformed as if it was a 4D vector with a W value of 1.
+ *
+ * The specified matrix and the original specified vector remain unchanged.
+ */
+CC3Vector CC3Matrix4x3TransformLocation(const CC3Matrix4x3* mtx, CC3Vector v);
+
+/**
+ * Transforms the specified 3D location vector using the specified matrix, and returns the
+ * transformed vector. The location is transformed as if it was a 4D vector with a W value of 0.
+ *
+ * The specified matrix and the original specified vector remain unchanged.
+ */
+CC3Vector CC3Matrix4x3TransformDirection(const CC3Matrix4x3* mtx, CC3Vector v);
 
 /**
  * Orthonormalizes the rotation component of the specified matrix, using a Gram-Schmidt process,
@@ -545,13 +491,6 @@ static inline void CC3Matrix4x3Transpose(CC3Matrix4x3* mtx) {
  * Inverts the specified matrix by using the algorithm of calculating the classical
  * adjoint and dividing by the determinant. The contents of the matrix are changed.
  *
- * Not all matrices are invertable. Returns whether the matrix was inverted.
- * If this function returns NO, then the matrix was not inverted, and remains unchanged.
- *
- * Matrix inversion using the classical adjoint algorithm is computationally-expensive. If it is
- * known that the matrix contains only rotation and translation, use the CC3Matrix4x3InvertRigid
- * function instead, which is some 10 to 100 times faster than this function.
- *
  * For an affine matrix, we can invert the 3x3 linear matrix, and use it to transform
  * the negated translation vector:
  * 
@@ -559,6 +498,13 @@ static inline void CC3Matrix4x3Transpose(CC3Matrix4x3* mtx) {
  *
  * where L(-1) is the inverted 3x3 linear matrix, and t is the translation vector,
  * both extracted from the 4x3 matrix.
+ *
+ * Not all matrices are invertable. Returns whether the matrix was inverted.
+ * If this function returns NO, then the matrix was not inverted, and remains unchanged.
+ *
+ * Matrix inversion using the classical adjoint algorithm is computationally-expensive. If it is
+ * known that the matrix contains only rotation and translation, use the CC3Matrix4x3InvertRigid
+ * function instead, which is some 10 to 100 times faster than this function.
  */
 static inline BOOL CC3Matrix4x3InvertAdjoint(CC3Matrix4x3* mtx) {
 	CC3Matrix3x3* linMtx = (CC3Matrix3x3*)mtx;

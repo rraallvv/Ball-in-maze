@@ -1,9 +1,9 @@
 /*
  * CC3Matrix.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -49,8 +49,8 @@
  * to apply a perspective projection to a linear or affine matrix).
  */
 @interface CC3Matrix : NSObject <NSCopying> {
-	BOOL isIdentity : 1;
-	BOOL isRigid : 1;
+	BOOL _isIdentity : 1;
+	BOOL _isRigid : 1;
 }
 
 /** 
@@ -320,7 +320,7 @@
  */
 -(CC3Vector) extractRotation;
 
-/** Extracts the rotation component of this matrix and returns it as a quaternion. */
+/** Extracts the rotation component of this matrix and returns it as a unit quaternion. */
 -(CC3Quaternion) extractQuaternion;
 
 /** Extracts and returns the 'forward' direction vector from the rotation component of this matrix. */
@@ -331,6 +331,9 @@
 
 /** Extracts and returns the 'right' direction vector from the rotation component of this matrix. */
 -(CC3Vector) extractRightDirection;
+
+/** Extracts and returns the translation vector from this matrix. */
+-(CC3Vector) extractTranslation;
 
 
 #pragma mark Matrix transformations

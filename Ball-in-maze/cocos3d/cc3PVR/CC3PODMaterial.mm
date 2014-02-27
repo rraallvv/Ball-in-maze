@@ -1,9 +1,9 @@
 /*
  * CC3PODMaterial.mm
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -34,17 +34,20 @@ extern "C" {
 }
 #import "CC3PODMaterial.h"
 #import "CC3PVRTModelPOD.h"
+#import "CC3PFXResource.h"
 
 @interface CC3PODMaterial (TemplateMethods)
--(void) addTexture: (int) aPODTexIndex fromPODResource: (CC3PODResource*) aPODRez;
--(void) addBumpMapTexture: (int) aPODTexIndex fromPODResource: (CC3PODResource*) aPODRez;
+-(void) addTexture: (GLint) aPODTexIndex fromPODResource: (CC3PODResource*) aPODRez;
+-(void) addBumpMapTexture: (GLint) aPODTexIndex fromPODResource: (CC3PODResource*) aPODRez;
 @end
 
 @implementation CC3PODMaterial
 
--(int) podIndex { return podIndex; }
+@synthesize pfxEffect=_pfxEffect;
 
--(void) setPodIndex: (int) aPODIndex { podIndex = aPODIndex; }
+-(GLint) podIndex { return _podIndex; }
+
+-(void) setPodIndex: (GLint) aPODIndex { _podIndex = aPODIndex; }
 
 static GLfloat shininessExpansionFactor = 128.0f;
 
@@ -52,17 +55,20 @@ static GLfloat shininessExpansionFactor = 128.0f;
 
 +(void) setShininessExpansionFactor: (GLfloat) aFloat { shininessExpansionFactor = aFloat; }
 
--(id) initAtIndex: (int) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
+-(id) initAtIndex: (GLint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
 	SPODMaterial* psm = (SPODMaterial*)[aPODRez materialPODStructAtIndex: aPODIndex];
 	LogRez(@"Creating %@ at index %i from: %@", [self class], aPODIndex, NSStringFromSPODMaterial(psm));
 	if ( (self = [super initWithName: [NSString stringWithUTF8String: psm->pszName]]) ) {
 		self.podIndex = aPODIndex;
-		self.ambientColor = CCC4FMake(psm->pfMatAmbient[0], psm->pfMatAmbient[1], psm->pfMatAmbient[2], psm->fMatOpacity);
-		self.diffuseColor = CCC4FMake(psm->pfMatDiffuse[0], psm->pfMatDiffuse[1], psm->pfMatDiffuse[2], psm->fMatOpacity);
-		self.specularColor = CCC4FMake(psm->pfMatSpecular[0], psm->pfMatSpecular[1], psm->pfMatSpecular[2], psm->fMatOpacity);
+		self.ambientColor = ccc4f(psm->pfMatAmbient[0], psm->pfMatAmbient[1], psm->pfMatAmbient[2], psm->fMatOpacity);
+		self.diffuseColor = ccc4f(psm->pfMatDiffuse[0], psm->pfMatDiffuse[1], psm->pfMatDiffuse[2], psm->fMatOpacity);
+		self.specularColor = ccc4f(psm->pfMatSpecular[0], psm->pfMatSpecular[1], psm->pfMatSpecular[2], psm->fMatOpacity);
 		self.shininess = psm->fMatShininess * shininessExpansionFactor;
-		self.sourceBlend = GLBlendFuncFromEPODBlendFunc(psm->eBlendSrcA);
-		self.destinationBlend = GLBlendFuncFromEPODBlendFunc(psm->eBlendDstA);
+		
+		self.sourceBlendRGB = GLBlendFuncFromEPODBlendFunc(psm->eBlendSrcRGB);
+		self.destinationBlendRGB = GLBlendFuncFromEPODBlendFunc(psm->eBlendDstRGB);
+		self.sourceBlendAlpha = GLBlendFuncFromEPODBlendFunc(psm->eBlendSrcA);
+		self.destinationBlendAlpha = GLBlendFuncFromEPODBlendFunc(psm->eBlendDstA);
 
 		// Add the bump-map texture first, then add the remaining in order.
 		// Textures are only added if they are in the POD file.
@@ -76,26 +82,40 @@ static GLfloat shininessExpansionFactor = 128.0f;
 		[self addTexture: psm->nIdxTexOpacity fromPODResource: aPODRez];
 		[self addTexture: psm->nIdxTexReflection fromPODResource: aPODRez];
 		[self addTexture: psm->nIdxTexRefraction fromPODResource: aPODRez];
- }
+		
+		if (psm->pszEffectName && psm->pszEffectFile) {
+			NSString* pfxFile = [NSString stringWithUTF8String: psm->pszEffectFile];
+			NSString* pfxPath = [aPODRez.directory stringByAppendingPathComponent: pfxFile];
+			NSString* pfxName = [NSString stringWithUTF8String: psm->pszEffectName];
+			_pfxEffect = [aPODRez.pfxResourceClass getEffectNamed: pfxName inPFXResourceFile: pfxPath];
+			[_pfxEffect populateMaterial: self];
+		}
+		
+		// Assign any user data and take ownership of managing its memory
+		if (psm->pUserData && psm->nUserDataSize > 0) {
+			self.userData = [NSData dataWithBytesNoCopy: psm->pUserData length: psm->nUserDataSize];
+			psm->pUserData = NULL;		// Clear reference so SPODNode won't try to free it.
+		}
+	}
 	return self;
 }
 
-+(id) materialAtIndex: (int) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
-	return [[[self alloc] initAtIndex: aPODIndex fromPODResource: aPODRez] autorelease];
++(id) materialAtIndex: (GLint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
+	return [[self alloc] initAtIndex: aPODIndex fromPODResource: aPODRez];
 }
 
 -(void) populateFrom: (CC3PODMaterial*) another {
 	[super populateFrom: another];
 
-	podIndex = another.podIndex;
+	_podIndex = another.podIndex;
 }
 
 /**
  * If the specified texture index is valid, extracts the texture from the POD resource
  * and adds it to this material.
  */
--(void) addTexture: (int) aPODTexIndex fromPODResource: (CC3PODResource*) aPODRez {
-	if (aPODTexIndex >= 0 && aPODTexIndex < (int)aPODRez.textureCount) {
+-(void) addTexture: (GLint) aPODTexIndex fromPODResource: (CC3PODResource*) aPODRez {
+	if (aPODTexIndex >= 0 && aPODTexIndex < (GLint)aPODRez.textureCount) {
 		[self addTexture: [aPODRez textureAtIndex: aPODTexIndex]];
 	}
 }
@@ -104,9 +124,10 @@ static GLfloat shininessExpansionFactor = 128.0f;
  * If the specified texture index is valid, extracts the texture from the POD resource,
  * configures it as a bump-map texture, and adds it to this material.
  */
--(void) addBumpMapTexture: (int) aPODTexIndex fromPODResource: (CC3PODResource*) aPODRez {
-	if (aPODTexIndex >= 0 && aPODTexIndex < (int)aPODRez.textureCount) {
-		CC3Texture* bmTex = [aPODRez textureAtIndex: aPODTexIndex];
+-(void) addBumpMapTexture: (GLint) aPODTexIndex fromPODResource: (CC3PODResource*) aPODRez {
+	if (aPODTexIndex >= 0 && aPODTexIndex < (GLint)aPODRez.textureCount) {
+		CC3Texture* tex = [aPODRez textureAtIndex: aPODTexIndex];
+		CC3TextureUnitTexture* bmTex = [CC3TextureUnitTexture textureWithTexture: tex];
 		bmTex.textureUnit = [CC3BumpMapTextureUnit textureUnit];
 		[self addTexture: bmTex];
 	}

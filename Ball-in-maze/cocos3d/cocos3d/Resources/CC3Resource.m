@@ -1,9 +1,9 @@
 /*
  * CC3Resource.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,16 +30,51 @@
  */
 
 #import "CC3Resource.h"
+#import "CC3NodesResource.h"
 
 
 @implementation CC3Resource
 
-@synthesize nodes, directory, wasLoaded, expectsVerticallyFlippedTextures;
+@synthesize directory=_directory, isBigEndian=_isBigEndian, wasLoaded=_wasLoaded;
 
 -(void) dealloc {
-	[nodes release];
-	[directory release];
-	[super dealloc];
+	[self remove];		// remove this instance from the cache
+}
+
+-(BOOL) loadFromFile: (NSString*) aFilePath {
+	if (_wasLoaded) {
+		LogError(@"%@ has already been loaded.", self);
+		return _wasLoaded;
+	}
+	
+	// Ensure the path is absolute, converting it if needed.
+	NSString* absFilePath = CC3EnsureAbsoluteFilePath(aFilePath);
+	
+	LogRez(@"--------------------------------------------------");
+	LogRez(@"Loading resources from file '%@'", absFilePath);
+	
+	if (!_name) self.name = [self.class resourceNameFromFilePath: absFilePath];
+	if (!_directory) self.directory = [absFilePath stringByDeletingLastPathComponent];
+	
+	MarkRezActivityStart();
+	
+	_wasLoaded = [self processFile: absFilePath];	// Main subclass loading method
+	
+	if (_wasLoaded)
+		LogRez(@"Loaded resources from file '%@' in %.3f seconds", aFilePath, GetRezActivityDuration() * 1000);
+	else
+		LogError(@"Could not load resource file '%@'", absFilePath);
+	
+	LogRez(@"");		// Empty line to separate from next logs
+	
+	return _wasLoaded;
+}
+
+-(BOOL) processFile: (NSString*) anAbsoluteFilePath { return NO; }
+
+-(BOOL) saveToFile: (NSString*) aFilePath {
+	CC3Assert(NO, @"%@ does not support saving the resource content back to a file.", self);
+	return NO;
 }
 
 
@@ -47,77 +82,78 @@
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		nodes = [[CCArray array] retain];
-		directory = nil;
-		wasLoaded = NO;
-		expectsVerticallyFlippedTextures = [[self class] defaultExpectsVerticallyFlippedTextures];
+		_directory = nil;
+		_isBigEndian = NO;
+		_wasLoaded = NO;
 	}
 	return self;
 }
 
-+(id) resource {
-	return [[[self alloc] init] autorelease];
-}
++(id) resource { return [[self alloc] init]; }
 
 -(id) initFromFile: (NSString*) aFilePath {
-	if ( (self = [self init]) ) {
-		if ( ![self loadFromFile: aFilePath] ) {
-			[self release];
-			return nil;
-		}
+	if ( (self = [self init]) ) {		// Use self so subclasses will init properly
+		if ( ![self loadFromFile: aFilePath] ) return nil;
 	}
 	return self;
 }
 
 +(id) resourceFromFile: (NSString*) aFilePath {
-	return [[[self alloc] initFromFile: aFilePath] autorelease];
+	id rez = [self getResourceNamed: [self resourceNameFromFilePath: aFilePath]];
+	if (rez) return rez;
+
+	rez = [[self alloc] initFromFile: aFilePath];
+	[self addResource: rez];
+	return rez;
 }
 
--(BOOL) loadFromFile: (NSString*) aFilePath {
-	if (wasLoaded) {
-		LogError(@"%@ has already been loaded.", self);
-		return wasLoaded;
-	}
-	
-	// Ensure the path is absolute, converting it if needed.
-	NSString* absFilePath = CC3EnsureAbsoluteFilePath(aFilePath);
++(NSString*) resourceNameFromFilePath: (NSString*) aFilePath { return aFilePath.lastPathComponent; }
 
-	LogRez(@"");
-	LogRez(@"--------------------------------------------------");
-	LogRez(@"Loading resources from file '%@'", absFilePath);
+-(NSString*) description { return [NSString stringWithFormat: @"%@ from file %@", self.class, self.name]; }
 
-	if (!name) self.name = [absFilePath lastPathComponent];
-	if (!directory) self.directory = [absFilePath stringByDeletingLastPathComponent];
-	
-#if LOGGING_REZLOAD
-	NSTimeInterval startTime = [NSDate timeIntervalSinceReferenceDate];
-#endif
-
-	wasLoaded = [self processFile: absFilePath];	// Main subclass loading method
-	
-	if (wasLoaded)
-		LogRez(@"Loaded resources from file '%@' in %.4f seconds",
-			   absFilePath, ([NSDate timeIntervalSinceReferenceDate] - startTime));
-	else
-		LogError(@"Could not load resource file '%@'", absFilePath);
-
-	return wasLoaded;
+-(NSString*) constructorDescription {
+	return [NSString stringWithFormat: @"[%@ resourceFromFile: @\"%@\"];", [self class], self.name];
 }
 
-// Subclasses should override this method, but invoke this superclass implementation first.
--(BOOL) processFile: (NSString*) anAbsoluteFilePath { return NO; }
 
+#pragma mark Resource cache
 
-#pragma mark Aligning texture coordinates to NPOT and iOS-inverted textures
+-(void) remove { [self.class removeResource: self]; }
 
-static BOOL defaultExpectsVerticallyFlippedTextures = YES;
+static CC3Cache* _resourceCache = nil;
 
-+(BOOL) defaultExpectsVerticallyFlippedTextures {
-	return defaultExpectsVerticallyFlippedTextures;
++(void) ensureCache {
+	if ( !_resourceCache ) _resourceCache = [CC3Cache weakCacheForType: @"resource"];	// retained
 }
 
-+(void) setDefaultExpectsVerticallyFlippedTextures: (BOOL) expectsFlipped {
-	defaultExpectsVerticallyFlippedTextures = expectsFlipped;
++(void) addResource: (CC3Resource*) resource {
+	[self ensureCache];
+	[_resourceCache addObject: resource];
+}
+
++(CC3Resource*) getResourceNamed: (NSString*) name {
+	return (CC3Resource*)[_resourceCache getObjectNamed: name];
+}
+
++(void) removeResource: (CC3Resource*) resource { [_resourceCache removeObject: resource]; }
+
++(void) removeResourceNamed: (NSString*) name { [_resourceCache removeObjectNamed: name]; }
+
++(void) removeAllResources { [_resourceCache removeAllObjectsOfType: self];}
+
++(BOOL) isPreloading { return _resourceCache ? !_resourceCache.isWeak : NO; }
+
++(void) setIsPreloading: (BOOL) isPreloading {
+	[self ensureCache];
+	_resourceCache.isWeak = !isPreloading;
+}
+
++(NSString*) cachedResourcesDescription {
+	NSMutableString* desc = [NSMutableString stringWithCapacity: 500];
+	[_resourceCache enumerateObjectsUsingBlock: ^(CC3Resource* rez, BOOL* stop) {
+		if ( [rez isKindOfClass: self] ) [desc appendFormat: @"\n\t%@", rez.constructorDescription];
+	}];
+	return desc;
 }
 
 
@@ -127,18 +163,18 @@ static BOOL defaultExpectsVerticallyFlippedTextures = YES;
 // This class variable is automatically incremented whenever the method nextTag is called.
 static GLuint lastAssignedResourceTag;
 
--(GLuint) nextTag {
-	return ++lastAssignedResourceTag;
-}
+-(GLuint) nextTag { return ++lastAssignedResourceTag; }
 
-+(void) resetTagAllocation {
-	lastAssignedResourceTag = 0;
-}
++(void) resetTagAllocation { lastAssignedResourceTag = 0; }
 
 
-#pragma mark Deprecated file loading methods
+#pragma mark Deprecated functionality
 
-// Deprecated methods
+-(NSArray*) nodes { return nil; }
+-(BOOL) expectsVerticallyFlippedTextures { return NO; }
+-(void) setExpectsVerticallyFlippedTextures: (BOOL) expectsVerticallyFlippedTextures {}
++(BOOL) defaultExpectsVerticallyFlippedTextures { return CC3NodesResource.defaultExpectsVerticallyFlippedTextures; }
++(void) setDefaultExpectsVerticallyFlippedTextures: (BOOL) expectsFlipped { CC3NodesResource.defaultExpectsVerticallyFlippedTextures = expectsFlipped; }
 -(BOOL) loadFromResourceFile: (NSString*) aRezPath { return [self loadFromFile: aRezPath];}
 -(id) initFromResourceFile: (NSString*) aRezPath { return [self initFromFile: aRezPath]; }
 +(id) resourceFromResourceFile: (NSString*) aRezPath { return [self resourceFromFile: aRezPath]; }

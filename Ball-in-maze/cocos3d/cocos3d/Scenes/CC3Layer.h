@@ -1,9 +1,9 @@
 /*
  * CC3Layer.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -43,8 +43,6 @@
  * will be rendered either over or under the 3D scene, based on their individual Z-order.
  * In particular, 2D controls such as menus, sprites, labels, health bars, joysticks, etc,
  * can be overlayed on the 3D scene simply by adding them as children of this layer.
- * Similarly, a 2D backdrop could be rendered behind the 3D scene by adding an appropriate
- * CCNode as a child with a negative Z-order.
  *
  * Like other CCNodes, this layer can be added to another 2D node, and given a contentSize,
  * position, and scale. You can even dynamically move and scale the embedded CC3Layer
@@ -69,8 +67,14 @@
  *   - projection and unprojection between the 2D and 3D coordinate systems, including
  *     projecting touch events onto 3D nodes, will not work correctly.
  *
- * CC3Layer descends from CCLayerColor, and will draw a colored background behind both 2D
- * and 3D content if configured with a background color.
+ * CC3Layer directly descends from CC3ControllableLayer, which means that it requires and
+ * is controlled by a CC3ViewController instance. In addition to linking the 3D scene to
+ * the view, the controller provides:
+ *   - Automatic resizing of the scene viewport when the contentSize of this layer changes.
+ *   - The CC3Layer can be overlaid on a device camera image stream so that both the 2D and
+ *     3D scenes can participate in an augmented reality view perspective.
+ *
+ * Either or both of these features can be turned on or off.
  *
  * To make use of the standard cocos2d model updatating functionality to update and animate
  * the 3D scene, use the scheduleUpdate or schedule:interval: methods of CC3Layer to invoke
@@ -102,16 +106,6 @@
  * You can even dyanamically move your CC3Layer around within the window, by changing the
  * position property (for example, by using a CCMoveTo action).
  *
- * CC3Layer directly descends from CC3ControllableLayer, which means that it can optionally
- * be controlled by a CC3UIViewController instance. Doing so enables two features:
- *   - Automatic rotatation the layer (both the 2D and 3D components) when the device orientation changes.
- *   - The CC3Layer can be overlaid on a device camera image stream so that both the 2D and 3D scenes can
- *     participate in an augmented reality view perspective.
- *
- * With the CC3UIViewController attached, either or both of these features can be turned on
- * or off. If neither of these features is required, there is no need to instantiate and
- * attach a CC3UIViewController, and the CC3Layer can be used without it.
- *
  * For most applications, you will create subclasses of both CC3Layer and CC3Scene.
  * The customized subclass of CC3Scene manages the behaviour of the 3D resources.
  * The customized subclass of CC3Layer manages the 2D artifacts, such as menus, sprites,
@@ -125,43 +119,117 @@
  * on swapping 3D scenes, see the notes on the cc3Scene property.
  * 
  * To create and use your CC3Layer and CC3Scene pair, follow these steps:
+ *   -# Create a CC3ViewController.
+ *   -# Instantiate your CC3Layer subclass on the controller, adding any 2D controls in the
+ *      initializeControls method, and managing event handlers and gesture recognizers in the
+ *      onOpenCC3Layer and onCloseCC3Layer methods.
  *   -# Instantiate your CC3Scene class, including creating or loading 3D file resources
  *      in the initializeScene method.
- *   -# Instantiate your CC3Layer subclass, adding any 2D controls in the initializeControls
- *      method, and managing event handlers and gesture recognizers in the onOpenCC3Layer
- *      and onCloseCC3Layer methods.
  *   -# Attach your CC3Scene to the cc3Scene property of your CC3Layer.
- *   -# Invoke the play method of your CC3Scene to enable dynamic behaviour for the 3D scene.
  *   -# Schedule regular updates in your CC3Layer instance by invoking either the
  *      scheduleUpdate or schedule:interval: method.
- *   -# Optionally create a CC3UIViewController.
- *   -# Run your CC3Layer instance either by invoking the runSceneOnNode: method of the
- *      CC3UIViewController with your CC3Layer, or by wrapping your CC3Layer in a CCScene
- *      and invoking the runWithScene: method of the shared CCDirector instance.
  */
 @interface CC3Layer : CC3ControllableLayer {
-	CC3Scene* cc3Scene;
-	CC3Scene* cc3World DEPRECATED_ATTRIBUTE;	// Parallel iVar reference for legacy apps that override CC3Layer
-	CCArray* cc3GestureRecognizers;
-	BOOL shouldAlwaysUpdateViewport : 1;
+	CC3Scene* _cc3Scene;
+	NSMutableArray* _cc3GestureRecognizers;
+	BOOL _shouldAlwaysUpdateViewport : 1;
 }
 
+
+#pragma mark iOS Gesture recognizers and touch handling
+
 /**
- * Returns whether this layer is opaque.
- *
- * Return YES if the isColored property returns YES and
- * the opacity property returns 255, otherwise returns NO.
+ * Returns a collection of iOS UIGestureRecognizers that were added using the 
+ * cc3AddGestureRecognizer: method. This property is only available under iOS.
  */
-@property(nonatomic, readonly) BOOL isOpaque;
+@property(nonatomic, strong, readonly) NSArray* cc3GestureRecognizers;
+
+/**
+ * Adds the specified iOS gesture recognizer to the UIView that is displaying this
+ * layer, and tracks the gesture recognizer in the cc3GestureRecognizers property.
+ *
+ * For applications that use a single CC3Layer to cover the entire UIView, you can
+ * override the onOpenCC3Layer method to create gesture recognizers, and you can
+ * invoke this method to easily add them to the UIView.
+ *
+ * When this layer is removed from the view, the gesture recognizers added using this
+ * method are automatically removed from the view, and from the cc3GestureRecognizers
+ * property. Whenever this layer is displayed again, new gesture recognizers will be
+ * created and attached to the view when the onOpenCC3Layer method runs again.
+ *
+ * For applications that diplay several CC3Layers that support gesture recognizers,
+ * you may want to create centralized gesture recognizers in some other scope, and
+ * bypass adding them using this method.
+ */
+-(void) cc3AddGestureRecognizer: (UIGestureRecognizer*) gesture;
+
+/**
+ * Removes the specified iOS gesture recognizer from the UIView that is displaying this
+ * layer, and removes the gesture recognizer from the cc3GestureRecognizers property.
+ *
+ * When this layer is removed from the view, the gesture recognizers added to the
+ * cc3GestureRecognizers property using the cc3AddGestureRecognizer: method are
+ * automatically removed from the view, and from the cc3GestureRecognizers property.
+ * Usually, the application does not need to invoke this method directly.
+ */
+-(void) cc3RemoveGestureRecognizer: (UIGestureRecognizer*) gesture;
+
+/**
+ * Removes all iOS gesture recognizers that were previously added using the
+ * cc3AddGestureRecognizer: method, and removes them all from the UIView.
+ *
+ * This method is invoked automatically when this layer is removed from the view.
+ * Usually, the application does not need to invoke this method directly, but if
+ * you need to remove all gesture recognizers prior to closing the layer, you can
+ * use this method to do so.
+ */
+-(void) cc3RemoveAllGestureRecognizers;
+
+/**
+ * Invoked automatically when the touchEnabled property or mouseEnabled is set to YES, and
+ * a touch or mouse event of the specified type occurs within the bounds of this layer.
+ * The specified touchPoint indicates where the touch event occurred, in the local coordinate
+ * system of this layer.
+ *
+ * Under iOS, the event originates from a finger touch event. Under OSX, the event may have
+ * originated as either a finger touch event on a touch pad, or an equivalent mouse event.
+ *
+ * When running under OSX, this layer treats mouse events as the corresponding touch event.
+ * The specified touchType will be one of the following:
+ *   - kCCTouchBegan:	a mouse-down event has occurred
+ *   - kCCTouchMoved:	a mouse-drag event has occurred (with the button down)
+ *   - kCCTouchEnded:	a mouse-up event has occurred
+ *
+ * Returns whether the event was handled.
+ *
+ * This implementation forwards all events to the CC3Scene touchEvent:at: method, and always
+ * returns YES. Subclasses may override this method to handle some events here instead.
+ */
+-(BOOL) handleTouchType: (uint) touchType at: (CGPoint) touchPoint;
+
+
+#pragma mark CCRGBAProtocol and CCBlendProtocol support
+
+/** 
+ * Implementation of the CCRGBAProtocol color property.
+ *
+ * Returns and changes the value of the same property on the cc3Scene.
+ */
+@property(nonatomic, assign) ccColor3B color;
+
+/**
+ * Implementation of the CCRGBAProtocol opacity property.
+ *
+ * Returns and changes the value of the same property on the cc3Scene.
+ */
+@property(nonatomic, assign) GLubyte opacity;
 
 
 #pragma mark Allocation and initialization
 
 /**
- * Template method that is invoked automatically during initialization, regardless
- * of the actual init* method that was invoked. Subclasses can override to set up their
- * 2D controls and other initial state without having to override all of the possible
- * superclass init methods.
+ * Template method that is invoked automatically during initialization. You can override
+ * this method to add 2D controls to the layer.
  *
  * This default implementation does nothing. It is not necessary to invoke this
  * superclass implementation when overriding in a subclass.
@@ -208,53 +276,6 @@
 -(void) onCloseCC3Layer;
 
 /**
- * Returns a collection of UIGestureRecognizers that were added
- * using the cc3AddGestureRecognizer: method.
- */
-@property(nonatomic, readonly) CCArray* cc3GestureRecognizers;
-
-/**
- * Adds the specified gesture recognizer to the UIView that is displaying this
- * layer, and tracks the gesture recognizer in the cc3GestureRecognizers property.
- *
- * For applications that use a single CC3Layer to cover the entire UIView, you can
- * override the onOpenCC3Layer method to create gesture recognizers, and you can
- * invoke this method to easily add them to the UIView.
- *
- * When this layer is removed from the view, the gesture recognizers added using this
- * method are automatically removed from the view, and from the cc3GestureRecognizers
- * property. Whenever this layer is displayed again, new gesture recognizers will be
- * created and attached to the view when the onOpenCC3Layer method runs again.
- *
- * For applications that diplay several CC3Layers that support gesture recognizers,
- * you may want to create centralized gesture recognizers in some other scope, and
- * bypass adding them using this method.
- */
--(void) cc3AddGestureRecognizer: (UIGestureRecognizer*) gesture;
-
-/**
- * Removes the specified gesture recognizer from the UIView that is displaying this
- * layer, and removes the gesture recognizer from the cc3GestureRecognizers property.
- *
- * When this layer is removed from the view, the gesture recognizers added to the
- * cc3GestureRecognizers property using the cc3AddGestureRecognizer: method are
- * automatically removed from the view, and from the cc3GestureRecognizers property.
- * Usually, the application does not need to invoke this method directly.
- */
--(void) cc3RemoveGestureRecognizer: (UIGestureRecognizer*) gesture;
-
-/**
- * Removes all gesture recognizers that were previously added using the
- * cc3AddGestureRecognizer: method, and removes them all from the UIView.
- * 
- * This method is invoked automatically when this layer is removed from the view.
- * Usually, the application does not need to invoke this method directly, but if
- * you need to remove all gesture recognizers prior to closing the layer, you can
- * use this method to do so.
- */
--(void) cc3RemoveAllGestureRecognizers;
-
-/**
  * The CC3Scene instance that maintains the 3D models and draws the 3D content.
  *
  * If your application contains multiple 3D scenes, you can swap between these scenes
@@ -278,10 +299,7 @@
  * open method on the new scene to ensure that the transforms are up to date before the
  * next frame is rendered.
  */
-@property(nonatomic, retain) CC3Scene* cc3Scene;	
-
-/** @deprecated Renamed to cc3Scene. */
-@property(nonatomic, retain) CC3Scene* cc3World DEPRECATED_ATTRIBUTE;
+@property(nonatomic, strong) CC3Scene* cc3Scene;	
 
 /**
  * Indicates whether this layer should update the 3D viewport on each rendering frame.
@@ -323,8 +341,7 @@
 -(void) update: (ccTime)dt;
 
 /**
- * Updates the viewport of the contained CC3Scene instance with the dimensions
- * of this layer and the device orientation.
+ * Updates the viewport of the contained CC3Scene instance with the dimensions of this layer.
  *
  * This method is invoked automatically when the position, size, scale, or orientation
  * of this layer changes. You do not need to invoke this method when changing the position

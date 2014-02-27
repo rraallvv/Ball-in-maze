@@ -1,10 +1,10 @@
 /*
  * CC3PODVertexSkinning.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Chris Myers, Bill Hollings
  * Copyright (c) 2011 Chris Myers. All rights reserved.
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -41,38 +41,11 @@
 
 /** A CC3SkinMeshNode extracted from a POD file. */
 @interface CC3PODSkinMeshNode : CC3SkinMeshNode {
-	int podIndex;
-	int podContentIndex;
-	int podParentIndex;
-	int podMaterialIndex;
+	GLint _podIndex;
+	GLint _podContentIndex;
+	GLint _podParentIndex;
+	GLint _podMaterialIndex;
 }
-@end
-
-
-#pragma mark -
-#pragma mark CC3PODSkinMesh
-
-/** A CC3SkinMesh extracted from a POD file. */
-@interface CC3PODSkinMesh : CC3SkinMesh {
-	int podIndex;
-}
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3VertexWeights
-
-/** A CC3VertexWeights extension to support extracting from a POD file. */
-@interface CC3VertexWeights (PVRPOD)
-@end
-
-
-#pragma mark -
-#pragma mark CC3VertexMatrixIndices
-
-/** A CC3VertexMatrixIndices extension to support extracting from a POD file. */
-@interface CC3VertexMatrixIndices (PVRPOD)
 @end
 
 
@@ -88,15 +61,9 @@
  * to the bones once the entire POD has been loaded.
  */
 @interface CC3PODSkinSection : CC3SkinSection {
-	GLint boneCount;
-	GLint* boneNodeIndices;
+	GLuint _podBoneCount;
+	GLint* _podBoneNodeIndices;
 }
-
-/** Indicates the number of bone indices contained in the boneNodeIndices property. */
-@property(nonatomic, readonly) GLint boneCount;
-
-/** An array of indices to bone nodes extracted from the POD file. */
-@property(nonatomic, readonly) GLint* boneNodeIndices;
 
 /**
  * Initializes an instance from the specified POD SPODMesh structure, 
@@ -121,7 +88,7 @@
  * retrieves the CC3Bone node at each index in the specified node array, and
  * adds that bone node to this skin section using the addBone: method.
  */
--(void) linkToPODNodes: (CCArray*) nodeArray;
+-(void) linkToPODNodes: (NSArray*) nodeArray;
 
 @end
 
@@ -131,9 +98,10 @@
 
 /** A CC3Bone extracted from a POD file. */
 @interface CC3PODBone : CC3Bone {
-	int podIndex;
-	int podContentIndex;
-	int podParentIndex;
+	GLint _podIndex;
+	GLint _podContentIndex;
+	GLint _podParentIndex;
+//	GLuint _podUserDataSize;
 }
 
 @end

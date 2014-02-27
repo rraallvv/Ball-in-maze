@@ -1,9 +1,9 @@
 /*
  * CC3ParametricMeshes.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -35,9 +35,9 @@
 
 
 #pragma mark -
-#pragma mark CC3VertexArrayMesh parametric shapes extension
+#pragma mark CC3Mesh parametric shapes extension
 
-@implementation CC3VertexArrayMesh (ParametricShapes)
+@implementation CC3Mesh (ParametricShapes)
 
 
 #pragma mark Utility methods
@@ -106,11 +106,11 @@
 			// Vertex normal is constant. Will do nothing if this mesh does not include normals.
 			[self setVertexNormal: vtxNml at: vIdx];
 			
-			// Vertex texture coordinates derived from the barycentric coordinates and inverted vertically.
+			// Vertex texture coordinates derived from the barycentric coordinates.
 			// Will do nothing if this mesh does not include texture coordinates.
 			GLfloat u = bw0 * tc[0].u + bw1 * tc[1].u + bw2 * tc[2].u;
 			GLfloat v = bw0 * tc[0].v + bw1 * tc[1].v + bw2 * tc[2].v;
-			[self setVertexTexCoord2F: cc3tc(u, (1.0f - v)) at: vIdx];
+			[self setVertexTexCoord2F: cc3tc(u, v) at: vIdx];
 
 			// First tessellated triangle starting at the vertex and opening away from corner 0.
 			if (i1 < divsSimSide1) {
@@ -139,19 +139,21 @@
 }
 
 -(void) populateAsCenteredRectangleWithSize: (CGSize) rectSize
-							andTessellation: (ccGridSize) divsPerAxis {
+							andTessellation: (CC3Tessellation) divsPerAxis {
 	[self populateAsRectangleWithSize: rectSize
 					andRelativeOrigin: ccp(0.5f, 0.5f)
 					  andTessellation: divsPerAxis];
 }
 
 -(void) populateAsRectangleWithSize: (CGSize) rectSize andRelativeOrigin: (CGPoint) origin {
-	[self populateAsRectangleWithSize: rectSize andRelativeOrigin: origin andTessellation: ccg(1, 1)];
+	[self populateAsRectangleWithSize: rectSize
+					andRelativeOrigin: origin
+					  andTessellation: CC3TessellationMake(1, 1)];
 }
 
 -(void) populateAsRectangleWithSize: (CGSize) rectSize
 				  andRelativeOrigin: (CGPoint) origin
-					andTessellation: (ccGridSize) divsPerAxis {
+					andTessellation: (CC3Tessellation) divsPerAxis {
 	
 	// Must be at least one tessellation face per side of the rectangle.
 	divsPerAxis.x = MAX(divsPerAxis.x, 1);
@@ -169,7 +171,7 @@
 	CGSize divTexSpan = CGSizeMake((1.0 / divsPerAxis.x), (1.0 / divsPerAxis.y));
 
 	// Get vertices per side.
-	ccGridSize verticesPerAxis;
+	CC3Tessellation verticesPerAxis;
 	verticesPerAxis.x = divsPerAxis.x + 1;
 	verticesPerAxis.y = divsPerAxis.y + 1;
 	GLuint vertexCount = verticesPerAxis.x * verticesPerAxis.y;
@@ -196,11 +198,11 @@
 			// Vertex normal. Will do nothing if this mesh does not include normals.
 			[self setVertexNormal: kCC3VectorUnitZPositive at: vIndx];
 
-			// Vertex texture coordinates, inverted vertically
+			// Vertex texture coordinates.
 			// Will do nothing if this mesh does not include texture coordinates.
 			GLfloat u = divTexSpan.width * ix;
 			GLfloat v = divTexSpan.height * iy;
-			[self setVertexTexCoord2F: cc3tc(u, (1.0f - v)) at: vIndx];
+			[self setVertexTexCoord2F: cc3tc(u, v) at: vIndx];
 		}
 	}
 	
@@ -230,7 +232,7 @@
 
 #pragma mark Populating parametric circular disk
 
--(void) populateAsDiskWithRadius: (GLfloat) radius andTessellation: (ccGridSize) radialAndAngleDivs {
+-(void) populateAsDiskWithRadius: (GLfloat) radius andTessellation: (CC3Tessellation) radialAndAngleDivs {
 	
 	// Must be at least one radial tessellation, and three angular tessellation.
 	GLuint numRadialDivs = MAX(radialAndAngleDivs.x, 1);
@@ -285,7 +287,7 @@
 			// number, then shifted to move range from (-0.5 <-> +0.5) to (0.0 <-> +1.0).
 			// Will do nothing if this mesh does not include texture coordinates.
 			CGPoint texPt = ccpAdd(ccpMult(unitRadial, (radialTexDivSpan * ir)), ccp(0.5f, 0.5f));
-			[self setVertexTexCoord2F: cc3tc(texPt.x, (1.0f - texPt.y)) at: vIndx];
+			[self setVertexTexCoord2F: cc3tc(texPt.x, texPt.y) at: vIndx];
 			
 			// Since the index array is a simple array, just access the array directly.
 			// For the first ring, add one triangle rooted at the origin.
@@ -314,7 +316,7 @@
 
 #pragma mark Populating parametric boxes
 
--(void) populateAsSolidBox: (CC3BoundingBox) box {
+-(void) populateAsSolidBox: (CC3Box) box {
 	GLfloat w = box.maximum.x - box.minimum.x;		// Width of the box
 	GLfloat h = box.maximum.y - box.minimum.y;		// Height of the box
 	GLfloat d = box.maximum.z - box.minimum.z;		// Depth of the box
@@ -323,13 +325,13 @@
 	[self populateAsSolidBox: box withCorner: ccp((d / ufw), (d / ufh))];
 }
 
--(void) populateAsCubeMappedSolidBox: (CC3BoundingBox) box {
+-(void) populateAsCubeMappedSolidBox: (CC3Box) box {
 	[self populateAsSolidBox: box withCorner: ccp((1.0 / 4.0), (1.0 / 3.0))];
 }
 
 // Thanks to cocos3d user andyman for contributing the prototype code and texture
 // template file for this method.
--(void) populateAsSolidBox: (CC3BoundingBox) box withCorner: (CGPoint) corner {
+-(void) populateAsSolidBox: (CC3Box) box withCorner: (CGPoint) corner {
 
 	CC3Vector boxMin = box.minimum;
 	CC3Vector boxMax = box.maximum;
@@ -348,104 +350,104 @@
 	// Front face, CCW winding:
 	[self setVertexLocation: cc3v(boxMin.x, boxMin.y, boxMax.z) at: 0];
 	[self setVertexNormal: kCC3VectorUnitZPositive at: 0];
-	[self setVertexTexCoord2F: cc3tc(corner.x, (1.0f - corner.y)) at: 0];
+	[self setVertexTexCoord2F: cc3tc(corner.x, corner.y) at: 0];
 
 	[self setVertexLocation: cc3v(boxMax.x, boxMin.y, boxMax.z) at: 1];
 	[self setVertexNormal: kCC3VectorUnitZPositive at: 1];
-	[self setVertexTexCoord2F: cc3tc(0.5f, (1.0f - corner.y)) at: 1];
+	[self setVertexTexCoord2F: cc3tc(0.5f, corner.y) at: 1];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMax.y, boxMax.z) at: 2];
 	[self setVertexNormal: kCC3VectorUnitZPositive at: 2];
-	[self setVertexTexCoord2F: cc3tc(0.5f, corner.y) at: 2];
+	[self setVertexTexCoord2F: cc3tc(0.5f, (1.0f - corner.y)) at: 2];
 	
 	[self setVertexLocation: cc3v(boxMin.x, boxMax.y, boxMax.z) at: 3];
 	[self setVertexNormal: kCC3VectorUnitZPositive at: 3];
-	[self setVertexTexCoord2F: cc3tc(corner.x, corner.y) at: 3];
+	[self setVertexTexCoord2F: cc3tc(corner.x, (1.0f - corner.y)) at: 3];
 	
 	// Right face, CCW winding:
 	[self setVertexLocation: cc3v(boxMax.x, boxMin.y, boxMax.z) at: 4];
 	[self setVertexNormal: kCC3VectorUnitXPositive at: 4];
-	[self setVertexTexCoord2F: cc3tc(0.5f, (1.0f - corner.y)) at: 4];
+	[self setVertexTexCoord2F: cc3tc(0.5f, corner.y) at: 4];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMin.y, boxMin.z) at: 5];
 	[self setVertexNormal: kCC3VectorUnitXPositive at: 5];
-	[self setVertexTexCoord2F: cc3tc((0.5f + corner.x), (1.0f - corner.y)) at: 5];
+	[self setVertexTexCoord2F: cc3tc((0.5f + corner.x), corner.y) at: 5];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMax.y, boxMin.z) at: 6];
 	[self setVertexNormal: kCC3VectorUnitXPositive at: 6];
-	[self setVertexTexCoord2F: cc3tc((0.5f + corner.x), corner.y) at: 6];
+	[self setVertexTexCoord2F: cc3tc((0.5f + corner.x), (1.0f - corner.y)) at: 6];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMax.y, boxMax.z) at: 7];
 	[self setVertexNormal: kCC3VectorUnitXPositive at: 7];
-	[self setVertexTexCoord2F: cc3tc(0.5f, corner.y) at: 7];
+	[self setVertexTexCoord2F: cc3tc(0.5f, (1.0f - corner.y)) at: 7];
 	
 	// Back face, CCW winding:
 	[self setVertexLocation: cc3v(boxMax.x, boxMin.y, boxMin.z) at: 8];
 	[self setVertexNormal: kCC3VectorUnitZNegative at: 8];
-	[self setVertexTexCoord2F: cc3tc((0.5f + corner.x), (1.0f - corner.y)) at: 8];
+	[self setVertexTexCoord2F: cc3tc((0.5f + corner.x), corner.y) at: 8];
 	
 	[self setVertexLocation: cc3v(boxMin.x, boxMin.y, boxMin.z) at: 9];
 	[self setVertexNormal: kCC3VectorUnitZNegative at: 9];
-	[self setVertexTexCoord2F: cc3tc(1.0f, (1.0f - corner.y)) at: 9];
+	[self setVertexTexCoord2F: cc3tc(1.0f, corner.y) at: 9];
 	
 	[self setVertexLocation: cc3v(boxMin.x, boxMax.y, boxMin.z) at: 10];
 	[self setVertexNormal: kCC3VectorUnitZNegative at: 10];
-	[self setVertexTexCoord2F: cc3tc(1.0f, corner.y) at: 10];
+	[self setVertexTexCoord2F: cc3tc(1.0f, (1.0f - corner.y)) at: 10];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMax.y, boxMin.z) at: 11];
 	[self setVertexNormal: kCC3VectorUnitZNegative at: 11];
-	[self setVertexTexCoord2F: cc3tc((0.5f + corner.x), corner.y) at: 11];
+	[self setVertexTexCoord2F: cc3tc((0.5f + corner.x), (1.0f - corner.y)) at: 11];
 	
 	// Left face, CCW winding:
 	[self setVertexLocation: cc3v(boxMin.x, boxMin.y, boxMin.z) at: 12];
 	[self setVertexNormal: kCC3VectorUnitXNegative at: 12];
-	[self setVertexTexCoord2F: cc3tc(0.0f, (1.0f - corner.y)) at: 12];
+	[self setVertexTexCoord2F: cc3tc(0.0f, corner.y) at: 12];
 	
 	[self setVertexLocation: cc3v(boxMin.x, boxMin.y, boxMax.z) at: 13];
 	[self setVertexNormal: kCC3VectorUnitXNegative at: 13];
-	[self setVertexTexCoord2F: cc3tc(corner.x, (1.0f - corner.y)) at: 13];
+	[self setVertexTexCoord2F: cc3tc(corner.x, corner.y) at: 13];
 	
 	[self setVertexLocation: cc3v(boxMin.x, boxMax.y, boxMax.z) at: 14];
 	[self setVertexNormal: kCC3VectorUnitXNegative at: 14];
-	[self setVertexTexCoord2F: cc3tc(corner.x, corner.y) at: 14];
+	[self setVertexTexCoord2F: cc3tc(corner.x, (1.0f - corner.y)) at: 14];
 	
 	[self setVertexLocation: cc3v(boxMin.x, boxMax.y, boxMin.z) at: 15];
 	[self setVertexNormal: kCC3VectorUnitXNegative at: 15];
-	[self setVertexTexCoord2F: cc3tc(0.0f, corner.y) at: 15];
+	[self setVertexTexCoord2F: cc3tc(0.0f, (1.0f - corner.y)) at: 15];
 	
 	// Top face, CCW winding:
 	[self setVertexLocation: cc3v(boxMin.x, boxMax.y, boxMin.z) at: 16];
 	[self setVertexNormal: kCC3VectorUnitYPositive at: 16];
-	[self setVertexTexCoord2F: cc3tc(corner.x, 0.0f) at: 16];
+	[self setVertexTexCoord2F: cc3tc(corner.x, 1.0f) at: 16];
 	
 	[self setVertexLocation: cc3v(boxMin.x, boxMax.y, boxMax.z) at: 17];
 	[self setVertexNormal: kCC3VectorUnitYPositive at: 17];
-	[self setVertexTexCoord2F: cc3tc(corner.x, corner.y) at: 17];
+	[self setVertexTexCoord2F: cc3tc(corner.x, (1.0f - corner.y)) at: 17];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMax.y, boxMax.z) at: 18];
 	[self setVertexNormal: kCC3VectorUnitYPositive at: 18];
-	[self setVertexTexCoord2F: cc3tc(0.5f, corner.y) at: 18];
+	[self setVertexTexCoord2F: cc3tc(0.5f, (1.0f - corner.y)) at: 18];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMax.y, boxMin.z) at: 19];
 	[self setVertexNormal: kCC3VectorUnitYPositive at: 19];
-	[self setVertexTexCoord2F: cc3tc(0.5f, 0.0f) at: 19];
+	[self setVertexTexCoord2F: cc3tc(0.5f, 1.0f) at: 19];
 	
 	// Bottom face, CCW winding:
 	[self setVertexLocation: cc3v(boxMin.x, boxMin.y, boxMax.z) at: 20];
 	[self setVertexNormal: kCC3VectorUnitYNegative at: 20];
-	[self setVertexTexCoord2F: cc3tc(corner.x, (1.0f - corner.y)) at: 20];
+	[self setVertexTexCoord2F: cc3tc(corner.x, corner.y) at: 20];
 	
 	[self setVertexLocation: cc3v(boxMin.x, boxMin.y, boxMin.z) at: 21];
 	[self setVertexNormal: kCC3VectorUnitYNegative at: 21];
-	[self setVertexTexCoord2F: cc3tc(corner.x, 1.0f) at: 21];
+	[self setVertexTexCoord2F: cc3tc(corner.x, 0.0f) at: 21];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMin.y, boxMin.z) at: 22];
 	[self setVertexNormal: kCC3VectorUnitYNegative at: 22];
-	[self setVertexTexCoord2F: cc3tc(0.5f, 1.0f) at: 22];
+	[self setVertexTexCoord2F: cc3tc(0.5f, 0.0f) at: 22];
 	
 	[self setVertexLocation: cc3v(boxMax.x, boxMin.y, boxMax.z) at: 23];
 	[self setVertexNormal: kCC3VectorUnitYNegative at: 23];
-	[self setVertexTexCoord2F: cc3tc(0.5f, (1.0f - corner.y)) at: 23];
+	[self setVertexTexCoord2F: cc3tc(0.5f, corner.y) at: 23];
 
 	// Populate the vertex indices
 	// Since the index array is a simple array, just access the array directly.
@@ -471,7 +473,7 @@ static const GLubyte wireBoxIndexData[] = {
 	0, 4, 1, 5, 2, 6, 3, 7,
 };
 
--(void) populateAsWireBox: (CC3BoundingBox) box {
+-(void) populateAsWireBox: (CC3Box) box {
 	CC3Vector boxMin = box.minimum;
 	CC3Vector boxMax = box.maximum;
 	GLuint vertexCount = 8;
@@ -506,7 +508,7 @@ static const GLubyte wireBoxIndexData[] = {
 
 #pragma mark Populating parametric sphere
 
--(void) populateAsSphereWithRadius: (GLfloat) radius andTessellation: (ccGridSize) divsPerAxis {
+-(void) populateAsSphereWithRadius: (GLfloat) radius andTessellation: (CC3Tessellation) divsPerAxis {
 	
 	// Must be at least one tessellation face per side of the rectangle.
 	divsPerAxis.x = MAX(divsPerAxis.x, 3);
@@ -518,7 +520,7 @@ static const GLubyte wireBoxIndexData[] = {
 	GLfloat halfDivTexSpanWidth = divTexSpan.width * 0.5f;
 	
 	// Calculate number of vertices, triangles and indices.
-	ccGridSize verticesPerAxis;
+	CC3Tessellation verticesPerAxis;
 	verticesPerAxis.x = divsPerAxis.x + 1;
 	verticesPerAxis.y = divsPerAxis.y + 1;
 	GLuint vertexCount = verticesPerAxis.x * verticesPerAxis.y;
@@ -571,7 +573,7 @@ static const GLubyte wireBoxIndexData[] = {
 			if (iy == (verticesPerAxis.y - 1)) uOffset = -halfDivTexSpanWidth;	// South pole
 			GLfloat u = divTexSpan.width * ix + uOffset;
 			GLfloat v = divTexSpan.height * iy;
-			[self setVertexTexCoord2F: cc3tc(u, v) at: vIndx];
+			[self setVertexTexCoord2F: cc3tc(u, (1.0f - v)) at: vIndx];
 			
 			// Since the index array is a simple array, just access the array directly.
 			// For each vertex that is at the bottom-right corner of a division, add triangles.
@@ -601,7 +603,7 @@ static const GLubyte wireBoxIndexData[] = {
 
 -(void) populateAsHollowConeWithRadius: (GLfloat) radius
 								height: (GLfloat) height
-					   andTessellation: (ccGridSize) angleAndHeightDivs {
+					   andTessellation: (CC3Tessellation) angleAndHeightDivs {
 	
 	// Must be at least one height tessellation, and three angular tessellation.
 	GLuint numAngularDivs = MAX(angleAndHeightDivs.x, 3);
@@ -647,7 +649,7 @@ static const GLubyte wireBoxIndexData[] = {
 			
 			// Vertex tex coords wrapped around and projected horizontally to the cone surface.
 			// Will do nothing if this mesh does not include texture coordinates.
-			ccTex2F texCoord = cc3tc(texAngularDivSpan * ia, (1.0f - texHeightDivSpan * ih));
+			ccTex2F texCoord = cc3tc(texAngularDivSpan * ia, texHeightDivSpan * ih);
 			[self setVertexTexCoord2F: texCoord at: vIdx];
 			
 			// First triangular face
@@ -686,362 +688,6 @@ static const GLubyte wireBoxIndexData[] = {
 }
 
 
-#pragma mark Populating for bitmapped font textures
-
-typedef struct {
-	GLfloat lineWidth;
-	NSUInteger lastVertexIndex;
-} CC3BMLineSpec;
-
--(void) populateAsBitmapFontLabelFromString: (NSString*) lblString
-									andFont: (CC3BMFontConfiguration*) fontConfig
-							  andLineHeight: (GLfloat) lineHeight
-						   andTextAlignment: (UITextAlignment) textAlignment
-						  andRelativeOrigin: (CGPoint) origin
-							andTessellation: (ccGridSize) divsPerChar {
-	
-	CGPoint charPos, adjCharPos;
-	CGSize layoutSize;
-	NSInteger kerningAmount;
-	unichar prevChar = -1;
-	NSUInteger strLen = [lblString length];
-	
-	if (lineHeight == 0.0f) lineHeight = fontConfig->commonHeight_;
-	GLfloat fontScale = lineHeight / (GLfloat)fontConfig->commonHeight_;
-
-	// Line count needs to be calculated before parsing the lines to get Y position
-	NSUInteger charCount = 0;
-	NSUInteger lineCount = 1;
-	for(NSUInteger i = 0; i < strLen; i++)
-		([lblString characterAtIndex: i] == '\n') ? lineCount++ : charCount++;
-	
-	// Create a local array to hold the dimensional characteristics of each line of text
-	CC3BMLineSpec* lineSpecs = calloc(lineCount, sizeof(CC3BMLineSpec));
-	
-	// We now know the height of the layout. Width will be determined as the lines are laid out.
-	layoutSize.width =  0;
-	layoutSize.height = lineHeight * lineCount;
-	
-	// Prepare the vertex content and allocate space for the vertices and indexes.
-	[self ensureVertexContent];
-	GLuint vtxCountPerChar = (divsPerChar.x + 1) * (divsPerChar.y + 1);
-	GLuint triCountPerChar = divsPerChar.x * divsPerChar.y * 2;
-	self.allocatedVertexCapacity = vtxCountPerChar * charCount;
-	self.allocatedVertexIndexCapacity = triCountPerChar * 3 * charCount;
-	
-	LogTrace(@"Creating label %@ with %i (%i) vertices and %i (%i) vertex indices from %i chars on %i lines in text %@",
-			 self, self.vertexCount, self.allocatedVertexCapacity,
-			 self.vertexIndexCount, self.allocatedVertexIndexCapacity, charCount, lineCount, lblString);
-	
-	// Start at the top-left corner of the label, above the first line.
-	// Place the first character at the left of the first line.
-	charPos.x = 0;
-	charPos.y = lineCount * lineHeight;
-	
-	NSUInteger lineIndx = 0;
-	NSUInteger vIdx = 0;
-	NSUInteger iIdx = 0;
-	
-	// Iterate through the characters
-	for (NSUInteger i = 0; i < strLen; i++) {
-		unichar c = [lblString characterAtIndex: i];
-		
-		// If the character is a newline, don't draw anything and move down a line
-		if (c == '\n') {
-			lineIndx++;
-			charPos.x = 0;
-			charPos.y -= lineHeight;
-			continue;
-		}
-		
-		// Get the font specification and for the character, the kerning between the previous
-		// character and this character, and determine a positioning adjustment for the character.
-		ccBMFontDef* charSpec = [fontConfig characterSpecFor: c];
-		NSAssert(charSpec, @"%@: no font specification loaded for character %i", self, c);
-
-		kerningAmount = [fontConfig kerningBetween: prevChar and: c] * fontScale;
-		adjCharPos.x = charPos.x + (charSpec->xOffset * fontScale) + kerningAmount;
-		adjCharPos.y = charPos.y - (charSpec->yOffset * fontScale);
-		
-		// Determine the size of each tesselation division for this character.
-		// This is specified in terms of the unscaled font config. It will be scaled later.
-		CGSize divSize = CGSizeMake(charSpec->rect.size.width / divsPerChar.x,
-									charSpec->rect.size.height / divsPerChar.y);
-		
-		// Populate the tesselated vertex locations, normals & texture coordinates for a single
-		// character. Iterate through the rows and columns of the tesselation grid, from the top-left
-		// corner downwards. This orientation aligns with the texture coords in the font file.
-		// Set the location of each vertex and tex coords to be proportional to its position in the
-		// grid, and set the normal of each vertex to point up the Z-axis.
-		for (NSUInteger iy = 0; iy <= divsPerChar.y; iy++) {
-			for (NSUInteger ix = 0; ix <= divsPerChar.x; ix++, vIdx++) {
-				
-				// Cache the index of the last vertex of this line. Since the vertices are accessed
-				// in consecutive, ascending order, this is done by simply setting it each time.
-				lineSpecs[lineIndx].lastVertexIndex = vIdx;
-				
-				// Vertex location
-				GLfloat vx = adjCharPos.x + (divSize.width * ix * fontScale);
-				GLfloat vy = adjCharPos.y - (divSize.height * iy * fontScale);
-				[self setVertexLocation: cc3v(vx, vy, 0.0) at: vIdx];
-				
-				// If needed, expand the line and layout width to account for the vertices
-				lineSpecs[lineIndx].lineWidth = MAX(lineSpecs[lineIndx].lineWidth, vx);
-				layoutSize.width = MAX(layoutSize.width, vx);
-				
-				// Vertex normal. Will do nothing if this mesh does not include normals.
-				[self setVertexNormal: kCC3VectorUnitZPositive at: vIdx];
-
-				// Vertex texture coordinates, inverted vertically, because we're working top-down.
-				GLfloat u = (charSpec->rect.origin.x + (divSize.width * ix)) / fontConfig->textureSize.x;
-				GLfloat v = (charSpec->rect.origin.y + (divSize.height * iy)) / fontConfig->textureSize.y;
-				[self setVertexTexCoord2F: cc3tc(u, v) at: vIdx];
-
-				// In the grid of division quads for each character, each vertex that is not
-				// in either the top-most row or the right-most column is the bottom-left corner
-				// of a division. Break the division into two triangles.
-				if (iy < divsPerChar.y && ix < divsPerChar.x) {
-					
-					// First triangle of face wound counter-clockwise
-					[self setVertexIndex: vIdx at: iIdx++];						// TL
-					[self setVertexIndex: (vIdx + divsPerChar.x + 1) at: iIdx++];	// BL
-					[self setVertexIndex: (vIdx + divsPerChar.x + 2) at: iIdx++];	// BR
-					
-					// Second triangle of face wound counter-clockwise
-					[self setVertexIndex: (vIdx + divsPerChar.x + 2) at: iIdx++];	// BR
-					[self setVertexIndex: (vIdx + 1) at: iIdx++];					// TR
-					[self setVertexIndex: vIdx at: iIdx++];						// TL
-				}
-			}
-		}
-
-		// Horizontal position of the next character
-		charPos.x += (charSpec->xAdvance * fontScale) + kerningAmount;
-
-		prevChar = c;	// Remember the current character before moving on to the next
-	}
-
-	// Iterate through the lines, calculating the width adjustment to correctly align each line,
-	// and applying that adjustment to the X-component of the location of each vertex that is
-	// contained within that text line.
-	for (NSUInteger i = 0; i < lineCount; i++) {
-		GLfloat widthAdj;
-		switch (textAlignment) {
-			case UITextAlignmentCenter:
-				// Adjust vertices so half the white space is on each side
-				widthAdj = (layoutSize.width - lineSpecs[i].lineWidth) * 0.5f;
-				break;
-			case UITextAlignmentRight:
-				// Adjust vertices so all the white space is on the left side
-				widthAdj = layoutSize.width - lineSpecs[i].lineWidth;
-				break;
-			case UITextAlignmentLeft:
-			default:
-				// Leave all vertices where they are
-				widthAdj = 0.0f;
-				break;
-		}
-		if (widthAdj) {
-			NSUInteger startVtxIdx = (i > 0) ? (lineSpecs[i - 1].lastVertexIndex + 1) : 0;
-			NSUInteger endVtxIdx = lineSpecs[i].lastVertexIndex;
-			LogTrace(@"%@ adjusting line %i by %.3f (from line width %i in layout width %i) from vertex %i to %i",
-					 self, i, widthAdj, lineSpecs[i].lineWidth, layoutSize.width, startVtxIdx, endVtxIdx);
-			for (vIdx = startVtxIdx; vIdx <= endVtxIdx; vIdx++) {
-				CC3Vector vtxLoc = [self vertexLocationAt: vIdx];
-				vtxLoc.x += widthAdj;
-				[self setVertexLocation: vtxLoc at: vIdx];
-			}
-		}
-	}
-
-	// Move all vertices so that the origin of the vertex coordinate system is aligned
-	// with a location derived from the origin factor.
-	NSUInteger vtxCnt = self.vertexCount;
-	CC3Vector originLoc = cc3v((layoutSize.width * origin.x), (layoutSize.height * origin.y), 0);
-	for (vIdx = 0; vIdx < vtxCnt; vIdx++) {
-		CC3Vector locOld = [self vertexLocationAt: vIdx];
-		CC3Vector locNew = CC3VectorDifference(locOld, originLoc);
-		[self setVertexLocation: locNew at: vIdx];
-	}
-	
-	free(lineSpecs);	// Release the array of line widths
-}
-
-/*
--(void) populateAsBitmapFontLabelFromString: (NSString*) lblString
-									andFont: (CC3BMFontConfiguration*) fontConfig
-							  andLineHeight: (GLfloat) lineHeight
-						   andTextAlignment: (UITextAlignment) textAlignment
-						  andRelativeOrigin: (CGPoint) origin
-							andTessellation: (ccGridSize) divsPerChar {
-	
-	CGPoint charPos, adjCharPos;
-	CGSize layoutSize;
-	NSInteger kerningAmount;
-	unichar prevChar = -1;
-	NSUInteger strLen = [lblString length];
-	
-	if (lineHeight == 0.0f) lineHeight = fontConfig->commonHeight_;
-	GLfloat fontScale = lineHeight / (GLfloat)fontConfig->commonHeight_;
-	
-	// Line count needs to be calculated before parsing the lines to get Y position
-	NSUInteger charCount = 0;
-	NSUInteger lineCount = 1;
-	for(NSUInteger i = 0; i < strLen; i++)
-		([lblString characterAtIndex: i] == '\n') ? lineCount++ : charCount++;
-	
-	// Create a local array to hold the dimensional characteristics of each line of text
-	CC3BMLineSpec* lineSpecs = calloc(lineCount, sizeof(CC3BMLineSpec));
-	
-	// We now know the height of the layout. Width will be determined as the lines are laid out.
-	layoutSize.width =  0;
-	layoutSize.height = lineHeight * lineCount;
-	
-	// Prepare the vertex content and allocate space for the vertices and indexes.
-	[self ensureVertexContent];
-	GLuint vtxCountPerChar = (divsPerChar.x + 1) * (divsPerChar.y + 1);
-	GLuint triCountPerChar = divsPerChar.x * divsPerChar.y * 2;
-	self.allocatedVertexCapacity = vtxCountPerChar * charCount;
-	self.allocatedVertexIndexCapacity = triCountPerChar * 3 * charCount;
-	
-	LogTrace(@"Creating label %@ with %i (%i) vertices and %i (%i) vertex indices from %i chars on %i lines in text %@",
-			 self, self.vertexCount, self.allocatedVertexCapacity,
-			 self.vertexIndexCount, self.allocatedVertexIndexCapacity, charCount, lineCount, lblString);
-	
-	// Start at the top-left corner of the label, above the first line.
-	// Place the first character at the left of the first line.
-	charPos.x = 0;
-	charPos.y = lineCount * lineHeight;
-	
-	NSUInteger lineIndx = 0;
-	NSUInteger vIdx = 0;
-	NSUInteger iIdx = 0;
-	
-	// Iterate through the characters
-	for (NSUInteger i = 0; i < strLen; i++) {
-		unichar c = [lblString characterAtIndex: i];
-		NSAssert( c < kCCBMFontMaxChars, @"LabelBMFont: character outside bounds");
-		
-		// If the character is a newline, don't draw anything and move down a line
-		if (c == '\n') {
-			lineIndx++;
-			charPos.x = 0;
-			charPos.y -= lineHeight;
-			continue;
-		}
-		
-		// Get the font specification and for the character, the kerning between the previous
-		// character and this character, and determine a positioning adjustment for the character.
-		ccBMFontDef charSpec = fontConfig->BMFontArray_[c];
-		kerningAmount = [fontConfig kerningBetween: prevChar and: c] * fontScale;
-		adjCharPos.x = charPos.x + (charSpec.xOffset * fontScale) + kerningAmount;
-		adjCharPos.y = charPos.y - (charSpec.yOffset * fontScale);
-		
-		// Determine the size of each tesselation division for this character.
-		// This is specified in terms of the unscaled font config. It will be scaled later.
-		CGSize divSize = CGSizeMake(charSpec.rect.size.width / divsPerChar.x,
-									charSpec.rect.size.height / divsPerChar.y);
-		
-		// Populate the tesselated vertex locations, normals & texture coordinates for a single
-		// character. Iterate through the rows and columns of the tesselation grid, from the top-left
-		// corner downwards. This orientation aligns with the texture coords in the font file.
-		// Set the location of each vertex and tex coords to be proportional to its position in the
-		// grid, and set the normal of each vertex to point up the Z-axis.
-		for (NSUInteger iy = 0; iy <= divsPerChar.y; iy++) {
-			for (NSUInteger ix = 0; ix <= divsPerChar.x; ix++, vIdx++) {
-				
-				// Cache the index of the last vertex of this line. Since the vertices are accessed
-				// in consecutive, ascending order, this is done by simply setting it each time.
-				lineSpecs[lineIndx].lastVertexIndex = vIdx;
-				
-				// Vertex location
-				GLfloat vx = adjCharPos.x + (divSize.width * ix * fontScale);
-				GLfloat vy = adjCharPos.y - (divSize.height * iy * fontScale);
-				[self setVertexLocation: cc3v(vx, vy, 0.0) at: vIdx];
-				
-				// If needed, expand the line and layout width to account for the vertices
-				lineSpecs[lineIndx].lineWidth = MAX(lineSpecs[lineIndx].lineWidth, vx);
-				layoutSize.width = MAX(layoutSize.width, vx);
-				
-				// Vertex normal. Will do nothing if this mesh does not include normals.
-				[self setVertexNormal: kCC3VectorUnitZPositive at: vIdx];
-				
-				// Vertex texture coordinates, inverted vertically, because we're working top-down.
-				GLfloat u = (charSpec.rect.origin.x + (divSize.width * ix)) / fontConfig->textureSize.x;
-				GLfloat v = (charSpec.rect.origin.y + (divSize.height * iy)) / fontConfig->textureSize.y;
-				[self setVertexTexCoord2F: cc3tc(u, v) at: vIdx];
-				
-				// In the grid of division quads for each character, each vertex that is not
-				// in either the top-most row or the right-most column is the bottom-left corner
-				// of a division. Break the division into two triangles.
-				if (iy < divsPerChar.y && ix < divsPerChar.x) {
-					
-					// First triangle of face wound counter-clockwise
-					[self setVertexIndex: vIdx at: iIdx++];						// TL
-					[self setVertexIndex: (vIdx + divsPerChar.x + 1) at: iIdx++];	// BL
-					[self setVertexIndex: (vIdx + divsPerChar.x + 2) at: iIdx++];	// BR
-					
-					// Second triangle of face wound counter-clockwise
-					[self setVertexIndex: (vIdx + divsPerChar.x + 2) at: iIdx++];	// BR
-					[self setVertexIndex: (vIdx + 1) at: iIdx++];					// TR
-					[self setVertexIndex: vIdx at: iIdx++];						// TL
-				}
-			}
-		}
-		
-		// Horizontal position of the next character
-		charPos.x += (charSpec.xAdvance * fontScale) + kerningAmount;
-		
-		prevChar = c;	// Remember the current character before moving on to the next
-	}
-	
-	// Iterate through the lines, calculating the width adjustment to correctly align each line,
-	// and applying that adjustment to the X-component of the location of each vertex that is
-	// contained within that text line.
-	for (NSUInteger i = 0; i < lineCount; i++) {
-		GLfloat widthAdj;
-		switch (textAlignment) {
-			case UITextAlignmentCenter:
-				// Adjust vertices so half the white space is on each side
-				widthAdj = (layoutSize.width - lineSpecs[i].lineWidth) * 0.5f;
-				break;
-			case UITextAlignmentRight:
-				// Adjust vertices so all the white space is on the left side
-				widthAdj = layoutSize.width - lineSpecs[i].lineWidth;
-				break;
-			case UITextAlignmentLeft:
-			default:
-				// Leave all vertices where they are
-				widthAdj = 0.0f;
-				break;
-		}
-		if (widthAdj) {
-			NSUInteger startVtxIdx = (i > 0) ? (lineSpecs[i - 1].lastVertexIndex + 1) : 0;
-			NSUInteger endVtxIdx = lineSpecs[i].lastVertexIndex;
-			LogTrace(@"%@ adjusting line %i by %.3f (from line width %i in layout width %i) from vertex %i to %i",
-					 self, i, widthAdj, lineSpecs[i].lineWidth, layoutSize.width, startVtxIdx, endVtxIdx);
-			for (vIdx = startVtxIdx; vIdx <= endVtxIdx; vIdx++) {
-				CC3Vector vtxLoc = [self vertexLocationAt: vIdx];
-				vtxLoc.x += widthAdj;
-				[self setVertexLocation: vtxLoc at: vIdx];
-			}
-		}
-	}
-	
-	// Move all vertices so that the origin of the vertex coordinate system is aligned
-	// with a location derived from the origin factor.
-	NSUInteger vtxCnt = self.vertexCount;
-	CC3Vector originLoc = cc3v((layoutSize.width * origin.x), (layoutSize.height * origin.y), 0);
-	for (vIdx = 0; vIdx < vtxCnt; vIdx++) {
-		CC3Vector locOld = [self vertexLocationAt: vIdx];
-		CC3Vector locNew = CC3VectorDifference(locOld, originLoc);
-		[self setVertexLocation: locNew at: vIdx];
-	}
-	
-	free(lineSpecs);	// Release the array of line widths
-}
-*/
-
 #pragma mark -
 #pragma mark Deprecated methods
 
@@ -1057,7 +703,7 @@ typedef struct {
 // Deprecated
 -(GLushort*) allocateIndexedTriangles: (GLuint) triangleCount {
 	self.allocatedVertexIndexCapacity = (triangleCount * 3);
-	return vertexIndices.vertices;
+	return _vertexIndices.vertices;
 }
 
 @end

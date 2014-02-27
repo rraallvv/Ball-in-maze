@@ -1,9 +1,9 @@
 /*
  * CC3Scene.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -31,21 +31,23 @@
 
 #import "CC3Camera.h"
 #import "CC3NodeSequencer.h"
+#import "CC3RenderSurfaces.h"
+#import "CC3UtilityMeshNodes.h"
 #import "CC3PerformanceStatistics.h"
-#import "CC3Fog.h"
-#import "CCDirectorIOS.h"
+#import "CC3ViewController.h"
+#import "CC3Backgrounder.h"
 
 
 /** Default value of the minUpdateInterval property. */
-static const ccTime kCC3DefaultMinimumUpdateInterval = 0.0;
+static const ccTime kCC3DefaultMinimumUpdateInterval = 0.0f;
 
 /** Default value of the maxUpdateInterval property. */
-static const ccTime kCC3DefaultMaximumUpdateInterval = (1.0 / 15.0);
+static const ccTime kCC3DefaultMaximumUpdateInterval = (1.0f / 15.0f);
 
 /** Default color for the ambient scene light. */
-static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 };
+static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2f, 0.2f, 0.2f, 1.0f };
 
-@class CC3Layer, CC3TouchedNodePicker, CC3ViewportManager;
+@class CC3Layer, CC3TouchedNodePicker;
 
 
 #pragma mark -
@@ -79,7 +81,7 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  *                              on each of child node of this node.
  *
  *   - updateAfterTransform:  - periodically update the activity of your 3D scene after
- *                              the automatic recalulation of the node's transformMatrix
+ *                              the automatic recalulation of the node's globalTransformMatrix
  *                              and prior to the automatic invoking the same method on each
  *                              of child node of this node.
  *
@@ -101,11 +103,11 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  *
  * You should override the updateBeforeTransform: method if you need to make changes to
  * the transform properties (location, rotation, scale), of any node. These changes will
- * them automatically be applied to the transformMatrix of the node and its child nodes.
+ * them automatically be applied to the globalTransformMatrix of the node and its child nodes.
  *
  * You should override the updateAfterTransform: method if you need access to the
  * global transform properties (globalLocation, globalRotation, globalScale), of a node
- * since these properties are only valid after the transformMatrix has been recalculated.
+ * since these properties are only valid after the globalTransformMatrix has been recalculated.
  * An example of where access to the global transform properties would be useful is in
  * the execution of collision detection algorithms.
  *
@@ -203,26 +205,22 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * and then reads the color of the pixel under the touch point to identify the object
  * under the touch point. This is performed under the covers, and the scene is immediately
  * redrawn in true colors and textures before being presented to the screen, so the user
- * is never aware that the scene was drawn twice. However, be aware that, if a translucent
- * or transparent object has nothing but the CC3Layer background color behind it, AND that
- * CC3Layer background color is also translucent or transparent, you might notice an
- * unavoidable flicker of the translucent node. To avoid this, you can use a backdrop or
- * skybox in your 3D scene. This issue only occurs during node picking, and only when
- * BOTH the node and the CC3Layer background colors are translucent or transparent, and
- * the backgound color is directly behind the node.
+ * is never aware that the scene was drawn twice.
  *
  * Depending on the complexity of the application, it may instantiate a single CC3Scene,
  * instance, or multiple instances if the application progresses from scene to scene.
  * Similarly, the application may have a single CC3Layer, or multiple CC3Layers.
  * Each CC3Layer may have its own CC3Scene instance, or may share a single instance.
  *
- * To maximize GL throughput, all OpenGL ES 1.1 state is tracked by the singleton instance
- * [CC3OpenGLES11Engine engine]. CC3OpenGLES11Engine only sends state change calls to the
- * GL engine if GL state really is changing. It is critical that all changes to GL state
- * are made through the CC3OpenGLES11Engine singleton. When adding or overriding functionality
- * in this framework, do NOT make gl* function calls directly if there is a corresponding
- * state change tracker in the CC3OpenGLES11Engine singleton. Route the state change request
- * through the CC3OpenGLES11Engine singleton instead.
+ * To maximize GL throughput, all OpenGL ES state is tracked by an instance of CC3OpenGL.
+ * During drawing, the CC3OpenGL instance is available through the gl property of the
+ * CC3NodeDrawingVisitor. During other activities, a singleton instance of CC3OpenGL can
+ * be retrieved from CC3OpenGL.sharedGL.
+ * 
+ * It is critical that all changes to GL state are made through the CC3OpenGL instance.
+ * When adding or overriding functionality in this framework, do NOT make gl* function
+ * calls directly if there is a corresponding method defined on the CC3OpenGL class.
+ * Instead, route the state change request through the appropriate CC3OpenGL method.
  *
  * You can collect statistics about the performance of your cocos3d application by setting
  * the performanceStatistics property to an appropriate instance of a statistics collector.
@@ -230,27 +228,33 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * property for more information.
  */
 @interface CC3Scene : CC3Node {
-	CCArray* targettingNodes;
-	CCArray* lights;
-	CCArray* billboards;
-	CC3Layer* cc3Layer;
-	CC3ViewportManager* viewportManager;
-	CC3Camera* activeCamera;
-	CC3NodeSequencer* drawingSequencer;
-	CC3TouchedNodePicker* touchedNodePicker;
-	CC3PerformanceStatistics* performanceStatistics;
-	CC3NodeUpdatingVisitor* updateVisitor;
-	CC3NodeDrawingVisitor* drawVisitor;
-	CC3NodeDrawingVisitor* shadowVisitor;
-	CC3NodeTransformingVisitor* transformVisitor;
-	CC3NodeSequencerVisitor* drawingSequenceVisitor;
-	CC3Fog* fog;
-	ccColor4F ambientLight;
-	ccTime minUpdateInterval;
-	ccTime maxUpdateInterval;
-	BOOL shouldClearDepthBufferBefore3D : 1;
-	BOOL shouldClearDepthBufferBefore2D : 1;
+	NSMutableArray* _targettingNodes;
+	NSMutableArray* _lights;
+	NSMutableArray* _billboards;
+	CC3Layer* __unsafe_unretained _cc3Layer;
+	CC3Camera* _activeCamera;
+	CC3NodeSequencer* _drawingSequencer;
+	CC3TouchedNodePicker* _touchedNodePicker;
+	CC3PerformanceStatistics* _performanceStatistics;
+	CC3NodeUpdatingVisitor* _updateVisitor;
+	CC3NodeDrawingVisitor* _viewDrawingVisitor;
+	CC3NodeDrawingVisitor* _envMapDrawingVisitor;
+	CC3NodeDrawingVisitor* _shadowVisitor;
+	CC3NodeTransformingVisitor* _transformVisitor;
+	CC3NodeSequencerVisitor* _drawingSequenceVisitor;
+	CC3MeshNode* _backdrop;
+	CC3Fog* _fog;
+	ccColor4F _ambientLight;
+	NSTimeInterval _timeAtOpen;
+	NSTimeInterval _elapsedTimeSinceOpened;
+	ccTime _minUpdateInterval;
+	ccTime _maxUpdateInterval;
+	ccTime _deltaFrameTime;
+	BOOL _shouldDisplayPickingRender : 1;
 }
+
+/** Returns whether this node is a scene. Returns YES. */
+@property(nonatomic, readonly) BOOL isScene;
 
 /**
  * The CC3Layer that is holding this 3D scene.
@@ -258,7 +262,7 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * This property is set automatically when this scene is assigned to the CC3Layer.
  * The application should not set this property directly.
  */
-@property(nonatomic, assign) CC3Layer* cc3Layer;
+@property(nonatomic, unsafe_unretained) CC3Layer* cc3Layer;
 
 /**
  * The controller that is controlling the view displaying this scene.
@@ -266,7 +270,7 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * This property is retrieved from the same property on the CC3Layer holding this scene,
  * and is made available to support delegation from this 3D scene.
  */
-@property(nonatomic, readonly) UIViewController* controller;
+@property(nonatomic, strong, readonly) CC3ViewController* controller;
 
 /**
  * The 3D camera that is currently displaying the scene of this scene.
@@ -297,7 +301,7 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * The initial value is nil. You must add at least one CC3Camera to your 3D scene to
  * make it viewable.
  */
-@property(nonatomic, retain, readwrite) CC3Camera* activeCamera;
+@property(nonatomic, strong, readwrite) CC3Camera* activeCamera;
 
 /**
  * Returns the lights currently illuminating this scene.
@@ -307,7 +311,28 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * node (or the scene itself) using the addChild: method. To remove a light from the scene,
  * invoke the remove method on the light itself, or the removeChild: method on its parent.
  */
-@property(nonatomic, readonly) CCArray* lights;
+@property(nonatomic, strong, readonly) NSArray* lights;
+
+/**
+ * To create a backdrop for this scene, set this to a CC3Backdrop instance, covered with
+ * either a solid color, or a texture.
+ *
+ * The backdrop appears behind everything else in the scene, and does not change as the
+ * camera moves around the scene. If you need to have more realistic scenery that changes
+ * as the camera moves and pans, consider adding a skybox to your scene instead of using
+ * a backdrop. You can create a skybox using a spherical or cube mesh, and applying a
+ * cube-mapped texture to it.
+ */
+@property(nonatomic, strong) CC3MeshNode* backdrop;
+
+/**
+ * If set, creates fog within the CC3Scene. Fog has a color and blends with the
+ * display of objects within the scene. Objects farther away from the camera are
+ * affected by the fog more than objects that are closer to the camera.
+ *
+ * The initial value is nil, indicating that the scene will contain no fog.
+ */
+@property(nonatomic, strong) CC3Fog* fog;
 
 /**
  * The touchedNodePicker picks the node under the point at which a touch event occurred.
@@ -315,14 +340,15 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * Touch events are forwarded to the touchedNodePicker from the touchEvent:at:
  * method when a node is to be picked from a particular touch event.
  */
-@property(nonatomic, retain) CC3TouchedNodePicker* touchedNodePicker;
+@property(nonatomic, strong) CC3TouchedNodePicker* touchedNodePicker;
 
-/**
- * The viewport manager manages the viewport and device orientation, including
- * handling coordinate rotation based on the device orientation, and conversion
- * of locations and points between the 3D and 2D coordinate systems. 
+/** 
+ * Returns whether this scene is illuminated.
+ *
+ * The scene is illuminated if the scene contains at least one light, or the value of
+ * the ambientLight property is not black.
  */
-@property(nonatomic, retain) CC3ViewportManager* viewportManager;
+@property(nonatomic, readonly) BOOL isIlluminated;
 
 /**
  * The color of the ambient light of the scene. This is independent of any CC3Light
@@ -375,16 +401,32 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * complexity and capabilities of your application, you should reset the performance
  * statistics at least every few seconds.
  */
-@property(nonatomic, retain) CC3PerformanceStatistics* performanceStatistics;
+@property(nonatomic, strong) CC3PerformanceStatistics* performanceStatistics;
+
+
+#pragma mark CCRGBAProtocol and CCBlendProtocol support
 
 /**
- * If set, creates fog within the CC3Scene. Fog has a color and blends with the
- * display of objects within the scene. Objects farther away from the camera are
- * affected by the fog more than objects that are closer to the camera.
+ * Implementation of the CCRGBAProtocol color property.
  *
- * The initial value is nil, indicating that the scene will contain no fog.
+ * Returns the color of the node in the backdrop property, or if there is no backdrop,
+ * returns the value of the superclass implementation.
+ *
+ * Setting this property set the color of the node in the backdrop property, but does
+ * not propagate the color change to all descendant nodes.
  */
-@property(nonatomic, retain) CC3Fog* fog;
+@property(nonatomic, assign) ccColor3B color;
+
+/**
+ * Implementation of the CCRGBAProtocol opacity property.
+ *
+ * Returns the opacity of the node in the backdrop property, or if there is no backdrop,
+ * returns the value of the superclass implementation.
+ *
+ * Setting this property set the opacity of the node in the backdrop property, and
+ * propagates the opacity change to all descendant nodes.
+ */
+@property(nonatomic, assign) GLubyte opacity;
 
 
 #pragma mark Allocation and initialization
@@ -522,7 +564,7 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * This property defaults to an instance of the class returned by the updateVisitorClass method.
  * The application can set a different visitor if desired.
  */
-@property(nonatomic, retain) CC3NodeUpdatingVisitor* updateVisitor;
+@property(nonatomic, strong) CC3NodeUpdatingVisitor* updateVisitor;
 
 /**
  * Returns the class of visitor that will automatically be instantiated into the
@@ -540,7 +582,7 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * This property defaults to an instance of the class returned by the transformVisitorClass
  * method. The application can set a different visitor if desired.
  */
-@property(nonatomic, retain) CC3NodeTransformingVisitor* transformVisitor;
+@property(nonatomic, strong) CC3NodeTransformingVisitor* transformVisitor;
 
 /**
  * The value of this property is used as the lower limit accepted by the updateScene: method.
@@ -562,10 +604,9 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
 
 /**
  * If the value of this property is greater than zero, it will be used as the upper limit
- * accepted by the updateScene: method. Values sent to the updateScene: method that are
- * larger than this maximum will be clamped to this limit. If the value of this property
- * is zero (or negative), the updateScene: method will use the value that is passed to it
- * unchanged.
+ * accepted by the updateScene: method. Values sent to the updateScene: method that are larger
+ * than this maximum will be clamped to this limit. If the value of this property is zero
+ * (or negative), the updateScene: method will use the value that is passed to it unchanged.
  *
  * Resource limitations, and activities around start-up and shut-down, can sometimes cause
  * an occasional large interval between consecutive updates. These large intervals can
@@ -604,9 +645,9 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  *   -# Checks isRunning property of this instance, and exits immediately if not running.
  *   -# If needed, clamps the dt property to the value in maxUpdateInterval property.
  *   -# Invokes updateBeforeTransform: on this instance.
- *   -# Triggers recalculation of the transformMatrix on this node.
+ *   -# Triggers recalculation of the globalTransformMatrix on this node.
  *   -# Updates each child (including invoking updateBeforeTransform:, recalulating the child
- *      node's transformMatrix, and invoking updateAfterTransform: on each descendant, in order).
+ *      node's globalTransformMatrix, and invoking updateAfterTransform: on each descendant, in order).
  *   -# Invokes updateAfterTransform: on this instance.
  *   -# Updates target tracking in the active camera, and all lights and billboards.
  *
@@ -618,7 +659,7 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * This method is invoked automatically at each scheduled update. Usually, the application
  * never needs to invoke this method directly.
  */
--(void) updateScene: (ccTime)dt;
+-(void) updateScene: (ccTime) dt;
 
 /**
  * Invokes the updateScene: method with the value of the minUpdateInterval property.
@@ -636,105 +677,231 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  */
 -(void) updateScene;
 
+/** The delta time from the most recent invocation of the updateScene: method. */
+@property(nonatomic, readonly) ccTime deltaFrameTime;
+
+/** 
+ * The elapsed real-time, measured in seconds, since this scene was last opened.
+ *
+ * The value of this property will be zero until, and whenever, the onOpen method is invoked.
+ * After the scene is opened, the value of this property will be updated on each update frame,
+ * and indicates how long this scene has been open.
+ */
+@property(nonatomic, readonly) NSTimeInterval elapsedTimeSinceOpened;
+
 
 #pragma mark Drawing
 
 /**
- * Indicates whether the OpenGL depth buffer should be cleared before drawing
- * the 3D scene.
+ * This method is invoked when the objects in the CC3Scene are to be drawn.
  *
- * If the CC3Layer, or other 2D nodes that the CC3Layer may be contained within,
- * have drawn 2D content on which the 3D scene is to be drawn on top of, AND is
- * using depth testing, then this property should be set to YES to ensure that
- * the 3D content will not conflict with the previously drawn 2D content, and
- * will be drawn on top of that 2D content.
+ * Typcially this method is invoked automatically from the draw method of the CC3Layer instance
+ * on each frame rendering cycle. This method is invoked asynchronously to the model updating loop,
+ * to keep the processing of OpenGL ES drawing separate from model updates.
  *
- * However, if this is not the case, then this property can be set to NO to skip
- * the overhead of clearing of the depth buffer when transitioning from 2D to 3D.
- * 
- * Clearing the depth buffer is a relatively expensive operation, and avoiding it
- * when it is not necessary can result in a performance improvement. Because of
- * this, it is recommended that this property be set to NO unless conflicts arise
- * when drawing 3D content over previously drawn 2D content.
+ * This implementation establishes the 3D rendering environment, handles node picking, invokes
+ * the drawSceneContentWithVisitor: method to draw the contents of this scene, reverts to the 2D rendering
+ * environment of the CC3Layer, and renders any 2D overlay billboards.
  *
- * The initial value of this property is YES. Set this property to NO to improve
- * performance if 3D content is not being drawn on top of 2D content.
+ * If you want to customize the scene rendering flow, such as performing multiple-passes, or
+ * adding post-processing effects, you should override the drawSceneContentWithVisitor: method.
+ *
+ * If the scene was touched by the user (finger or mouse), this method invokes the node picking
+ * algorithm to determine the node that is under the touch point. This is performed prior to
+ * invoking the drawSceneContentWithVisitor: method.
+ *
+ * This method is invoked automatically during each rendering frame. Usually, the application
+ * never needs to invoke this method directly.
  */
-@property(nonatomic, assign) BOOL shouldClearDepthBufferBefore3D;
+-(void) drawScene;
 
 /**
- * Indicates whether the OpenGL depth buffer should be cleared before reverting
- * back to the 2D scene.
+ * Template method that draws the content of the scene.
  *
- * If 2D content will be drawn on top of the 3D content, AND it is being drawn
- * with depth testing enabled, then this property should be set to YES.
+ * This method is invoked automatically by the drawScene method, once the 3D environment has
+ * been established. Once this method is complete, the 2D rendering environment will be
+ * re-established automatically, and any 2D billboard overlays will be rendered. This method
+ * does not need to take care of any of this set-up and tear-down.
  *
- * However, if this is not the case, then this property can be set to NO to skip the
- * overhead of clearing of the depth buffer when transitioning from 3D back to 2D.
- * 
- * Clearing the depth buffer is a relatively expensive operation, and avoiding it
- * when it is not necessary can result in a performance improvement. Because of
- * this, it is recommended that this property be set to NO, and turn depth testing
- * off during drawing of the 2D content on top of the 3D scene.
+ * This implementation turns on the lighting contained within the scene, and performs a single
+ * rendering pass of the nodes in the scene.
  *
- * You can turn depth testing off for the 2D content by invoking the following
- * code once during the initialization of your application after the EAGLView
- * has been created:
+ * The core of the drawing is handled by invoking the visit: method on the specified visitor,
+ * with this scene as the argument. Several template methods are available to provide
+ * "building blocks" to help you build the functionality in this method, and which you can
+ * individually customize as needed. The order of behavior of this method is:
+ *   - invoke illuminateWithVisitor:        - turns on scene lighting
+ *   - visit backdrop with visitor:			- draws an optional fixed backdrop
+ *   - visit scene with visitor				- draws the nodes in the drawingSequencer
+ *   - draw shadows using special visitor	- draws shadow volumes
  *
- *   [[CCDirector sharedDirector] setDepthTest: NO];
+ * You can override this method to customize the scene rendering flow, such as performing
+ * multiple rendering passes on different surfaces, or adding post-processing effects, using
+ * the template methods mentioned above.
  *
- * By doing so, you will then be able to set this property to NO and still be able
- * to draw 2D content on top of the 3D scene, while avoiding an unnecessary clearing
- * of the depth buffer.
+ * Note that rendering output is directed to the render surface held in the renderSurface
+ * property of the visitor. By default, that is set to the render surface held in the viewSurface
+ * property of this scene. If you override this method, you can set the renderSurface property
+ * of the visitor to another surface, and then invoke this superclass implementation, to render
+ * this scene to a texture for later processing.
  *
- * The initial value of this property is YES. Set this property to NO to improve
- * performance if depth-testing 2D content is not being drawn on top of 3D content.
+ * When overriding the drawSceneContentWithVisitor: method with your own specialized rendering,
+ * steps, be careful to avoid recursive loops when rendering to textures and environment maps.
+ * For example, you might typically override drawSceneContentWithVisitor: to include steps to
+ * render environment maps for reflections, etc. In that case, you should also override the
+ * drawSceneContentForEnvironmentMapWithVisitor: to render the scene without those additional
+ * steps, to avoid the inadvertenly invoking an infinite recursive rendering of a scene to a
+ * texture while the scene is already being rendered to that texture.
+ *
+ * To maintain performance, by default, the depth buffer of the surface is not specifically
+ * cleared when 3D drawing begins. If this scene is drawing to a surface that already has 
+ * depth information rendered, you can override this method and clear the depth buffer before
+ * continuing with 3D drawing, by invoking clearDepthContent on the renderSurface of the visitor,
+ * and then invoking this superclass implementation, or continuing with your own drawing logic.
+ *
+ * Examples of when the depth buffer should be cleared are when this scene is being drawn
+ * on top of other 3D content (as in a sub-window), or when any 2D content that is rendered
+ * behind the scene makes use of depth drawing. See also the closeDepthTestWithVisitor:
+ * method for more info about managing the depth buffer.
  */
-@property(nonatomic, assign) BOOL shouldClearDepthBufferBefore2D;
+-(void) drawSceneContentWithVisitor: (CC3NodeDrawingVisitor*) visitor;
+
+/**
+ * Template method that draws the content of the scene for use in an environment map texture.
+ *
+ * This implementation invokes the clearColorAndDepthContent method on the surface returned by
+ * the visitor's renderSurface property, to clear the color and depth content from the environment
+ * map buffers, and then invokes the drawSceneContentWithVisitor: method of this scene, rendering
+ * the entire scene to the environment map, in exacly the same way the scene is rendered to the view.
+ *
+ * You can override this method to perform rendering tailored for environment maps. For instance,
+ * an environment map typically may not require complete fidelity, and to conserve performance,
+ * you may want to simplify the scene, or avoid certain costly activities such as drawing shadows,
+ * multi-pass rendering, or post-rendering processing.
+ *
+ * When overriding the drawSceneContentWithVisitor: method with your own specialized rendering,
+ * steps, be careful to avoid recursive loops when rendering to textures and environment maps.
+ * For example, you might typically override drawSceneContentWithVisitor: to include steps to
+ * render environment maps for reflections, etc. In that case, you should also override the
+ * drawSceneContentForEnvironmentMapWithVisitor: to render the scene without those additional
+ * steps, to avoid the inadvertenly invoking an infinite recursive rendering of a scene to a
+ * texture while the scene is already being rendered to that texture.
+ */
+-(void) drawSceneContentForEnvironmentMapWithVisitor: (CC3NodeDrawingVisitor*) visitor;
+
+/**
+ * Template method that draws the static backdrop in the backdrop property, if it exists.
+ *
+ * The backdrop is not drawn if this scene is being drawn overlaid on the device camera image,
+ * as indicated by the isOverlayingDeviceCamera property of this scene's view controller.
+ */
+-(void) drawBackdropWithVisitor: (CC3NodeDrawingVisitor*) visitor;
+
+/**
+ * Template method that draws shadows.
+ *
+ * The visitor passed in here should be the specialized visitor held in the shadowVisitor property.
+ * Before invoking this method, you can invoke the alignShotWith: method on the shadowVisitor to
+ * align the camera and renderSurface properties of the shadowVisitor with that of the main
+ * drawing visitor.
+ */
+-(void) drawShadowsWithVisitor:  (CC3NodeDrawingVisitor*) visitor;
+
+/**
+ * Template method that turns on lighting of the 3D scene.
+ *
+ * This method is usually invoked from the drawSceneContentWithVisitor: method.
+ *
+ * Default implementation turns on global ambient lighting, and each CC3Light instance.
+ */
+-(void) illuminateWithVisitor: (CC3NodeDrawingVisitor*) visitor;
+
+/**
+ * Template method that leaves depth testing in the state required by the 2D environment.
+ *
+ * Since most 2D drawing does not need to use depth testing, and clearing the depth buffer is
+ * a relatively costly operation, the standard behaviour is to simply turn depth testing off.
+ * However, subclasses can override this method to leave depth testing on and clear the depth
+ * buffer in order to permit 2D drawing to make use of depth testing.
+ *
+ * This method is invoked automatically during the transition back to 2D drawing, incluing
+ * between the CC3Scene and the CC3Layer, and when drawing a CC3Billboard containing a 2D
+ * cocos2d CCNode. Normally the application never needs to invoke this method directly.
+ */
+-(void) closeDepthTestWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 /**
  * The node sequencer being used by this instance to order the drawing of child nodes.
  *
- * During drawing, the nodes can be traversed in the hierarchical order of the
- * node structural assembly, starting at the CC3Scene instance that forms the root node
- * of the node assembly. Alternately, and preferrably, the CC3Scene can use a
- * CC3NodeSequencer instance to arrange the nodes into a linear sequence, ordered and
- * grouped based on definable sorting priorities. This is beneficial, because it allows
- * the application to order and group drawing operations in ways that reduce the number
- * and scope of state changes within the GL engine, thereby improving performance and
- * throughput.
+ * During drawing, the nodes can be traversed in the hierarchical order of the node structural
+ * assembly, starting at the CC3Scene instance that forms the root node of the node assembly.
+ * Alternately, and preferrably, the CC3Scene can use a CC3NodeSequencer instance to arrange
+ * the nodes into a linear sequence, ordered and grouped based on definable sorting priorities.
+ * This is beneficial, because it allows the application to order and group drawing operations
+ * in ways that reduce the number and scope of state changes within the GL engine, thereby
+ * improving performance and throughput.
  * 
- * For example, when drawing, nodes could be grouped by the drawing sequencer so that
- * opaque objects are drawn prior to blended objects, and an application with many
- * objects that use the same material or mesh can be sorted so that nodes with like
- * materials or meshes are grouped together. It is highly recommended that you use a
- * CC3NodeSequencer.
+ * For example, when drawing, nodes could be grouped by the drawing sequencer so that opaque
+ * objects are drawn prior to blended objects, and an application with many objects that use
+ * the same material or mesh can be sorted so that nodes with like materials or meshes are
+ * grouped together. It is highly recommended that you use a CC3NodeSequencer.
  *
  * The default drawing sequencer includes only nodes with local content, and groups
  * them so that opaque nodes are drawn first, then nodes with blending.
  */
-@property(nonatomic, retain) CC3NodeSequencer* drawingSequencer;
+@property(nonatomic, strong) CC3NodeSequencer* drawingSequencer;
 
 /** Returns whether this instance is using a drawing sequencer. */
 @property(nonatomic, readonly) BOOL isUsingDrawingSequence;
 
 /**
- * The visitor that is used to visit the nodes to draw them to the GL engine.
+ * The view's surface manager. 
  *
- * This property defaults to an instance of the class returned by the drawVisitorClass method.
+ * The returned object manages the surfaces that render directly to the view, including the
+ * surfaces in the viewSurface and pickingSurface properties, and manages the resolution of 
+ * anti-aliasing multisampling.
+ *
+ * You can access this property from the onOpen method of this scene, or any time after.
+ * This property is not valid before that time.
+ */
+@property(nonatomic, strong, readonly) CC3GLViewSurfaceManager* viewSurfaceManager;
+
+/**
+ * The render surface being used to draw to the view on the screen.
+ *
+ * When this render surface is active, all drawing activity is rendered to the framebuffer
+ * attached to the view.
+ *
+ * The value of this property is retrieved from the surface manager in the viewSurfaceManager property.
+ */
+@property(nonatomic, strong, readonly) id<CC3RenderSurface> viewSurface;
+
+/**
+ * The visitor that is used to visit the nodes to draw them to the view on the screen.
+ *
+ * This property defaults to an instance of the class returned by the viewDrawVisitorClass method.
  * The application can set a different visitor if desired.
  */
-@property(nonatomic, retain) CC3NodeDrawingVisitor* drawVisitor;
+@property(nonatomic, strong) CC3NodeDrawingVisitor* viewDrawingVisitor;
 
 /**
  * Returns the class of visitor that will automatically be instantiated into the
- * drawVisitor property.
+ * viewDrawingVisitor property.
  *
- * The returned class must be a subclass of CC3NodeDrawingVisitor. This implementation
- * returns CC3NodeDrawingVisitor. Subclasses may override to customize the behaviour
- * of the drawing visits.
+ * The returned class must be a subclass of CC3NodeDrawingVisitor. This implementation returns
+ * CC3NodeDrawingVisitor. Subclasses may override to customize the behaviour of the drawing visits.
  */
--(id) drawVisitorClass;
+-(id) viewDrawVisitorClass;
+
+/** 
+ * The visitor that is used to visit the nodes to draw them to an environment map texture.
+ *
+ * If not set directly, the first time it is accessed, a new instance of the class
+ * returned by the viewDrawVisitorClass method will be created and set into this property.
+ * The isDrawingEnvironmentMap property of that visitor is set to YES, and the camera 
+ * property is set to a new camera whose fieldOfView property is set to 90 degrees.
+ */
+@property(nonatomic, strong) CC3NodeDrawingVisitor* envMapDrawingVisitor;
 
 /**
  * The visitor that is used to visit shadow nodes to draw them to the GL engine.
@@ -742,7 +909,7 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * This property defaults to an instance of the CC3ShadowDrawingVisitor class.
  * The application can set a different visitor if desired.
  */
-@property(nonatomic, retain) CC3NodeDrawingVisitor* shadowVisitor;
+@property(nonatomic, strong) CC3NodeDrawingVisitor* shadowVisitor;
 
 /**
  * The sequencer visitor used to visit the drawing sequencer during operations
@@ -751,71 +918,69 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * This property defaults to an instance of the CC3NodeSequencerVisitor class.
  * The application can set a different visitor if desired.
  */
-@property(nonatomic, retain) CC3NodeSequencerVisitor* drawingSequenceVisitor;
+@property(nonatomic, strong) CC3NodeSequencerVisitor* drawingSequenceVisitor;
 
-/**
- * This method is invoked periodically when the objects in the CC3Scene are to be drawn.
- *
- * Typcially this method is invoked automatically from the draw method of the CC3Layer instance.
- * This method is invoked asynchronously to the model updating loop, to keep the processing of
- * OpenGL ES drawing separate from model updates.
- *
- * To maximize GL throughput, all OpenGL ES 1.1 state is tracked by the singleton instance
- * [CC3OpenGLES11Engine engine]. CC3OpenGLES11Engine only sends state change calls to the
- * GL engine if GL state really is changing. It is critical that all changes to GL state
- * are made through the CC3OpenGLES11Engine singleton. When overriding this method, or any
- * other 3D drawing features, do NOT make gl* function calls directly if there is a
- * corresponding state change tracker in the CC3OpenGLES11Engine singleton. Route the
- * state change request through the CC3OpenGLES11Engine singleton instead.
- *
- * This method is invoked automatically during each rendering frame. Usually, the application
- * never needs to invoke this method directly.
- */
--(void) drawScene;
+/** @deprecated Depth clearing is now handled by app in drawSceneContentWithVisitor:. */
+@property(nonatomic, assign) BOOL shouldClearDepthBuffer;
+
+/** @deprecated Use the shouldClearDepthBuffer propety instead. */
+@property(nonatomic, assign) BOOL shouldClearDepthBufferBefore3D DEPRECATED_ATTRIBUTE;
+
+/** @deprecated Use the shouldClearDepthBuffer propety instead. */
+@property(nonatomic, assign) BOOL shouldClearDepthBufferBefore2D DEPRECATED_ATTRIBUTE;
 
 
 #pragma mark Touch handling
 
 /**
- * This method is invoked from the CC3Layer whenever a touch event occurs, if that layer
- * has indicated that it is interested in receiving touch events, and is handling them.
+ * This method is invoked from the CC3Layer whenever a touch event occurs, if that layer has
+ * indicated that it is interested in receiving touch events, and is handling them, or, under OSX,
+ * whenever a mouse event occurs, if that layer has indicated that it is interested in receiving
+ * mouse events, and is handling them
  *
- * This method is not invoked when gestures are used for user interaction. The CC3Layer
- * processes gestures and invokes higher-level application-defined behaviour on the
- * application's customized CC3Scene subclass.
+ * This method is not invoked when gestures are used for user interaction. The CC3Layer processes
+ * gestures and invokes higher-level application-defined behaviour on the application's customized
+ * CC3Scene subclass.
  *
- * The touchType is one of the enumerated touch types: kCCTouchBegan, kCCTouchMoved,
- * kCCTouchEnded, or kCCTouchCancelled, and may have originated as a single-touch
- * or multi-touch event.
- * 
- * To enable touch events, set the isTouchEnabled property of the CC3Layer. Once
- * the CC3Layer is touch-enabled, this method is invoked automatically whenever a
- * single-touch event occurs.
+ * The touchType is one of the enumerated touch types: kCCTouchBegan, kCCTouchMoved, kCCTouchEnded,
+ * or kCCTouchCancelled, and may have originated as a single-touch or multi-touch event.
  *
- * Since the touch-move events are both voluminous and seldom used, the handling of
- * ccTouchMoved:withEvent: has been left out of the default CC3Layer implementation.
- * To receive and handle touch-move events for object picking, copy the commented-out
- * ccTouchMoved:withEvent: template method implementation in CC3Layer to your
- * customized CC3Layer subclass.
+ * When running under OSX, this mouse events are treated as the corresponding touch event.
+ * The specified touchType will be one of the following:
+ *   - kCCTouchBegan:	a mouse-down event has occurred
+ *   - kCCTouchMoved:	a mouse-drag event has occurred (with the button down)
+ *   - kCCTouchEnded:	a mouse-up event has occurred
  *
- * This default implementation forwards touch-down events to the pickNodeFromTouchEvent:at:
- * method, which determines which 3D node is under the touch point, and does nothing with
- * touch-move and touch-up events. For the touch-down events, object picking is handled
- * asynchronously, and once the node is retrieved, the nodeSelected:byTouchEvent:at:
- * callback method will be invoked on this instance.
+ * To enable touch events, set the touchEnabled property of the CC3Layer. Once the CC3Layer is
+ * touch-enabled, this method is invoked automatically whenever a single-touch event occurs.
  *
- * Node picking from touch events is somewhat expensive. If you do not require node
- * picking, you should override this implementation and avoid forwarding the touch-down
- * events to this method. You can also override this method to enhance the touch
- * interaction, such as swipe detection, or dragging & dropping objects. You can use
- * the implementation of this method as a template for enhancements.
+ * To enable mouse events when running under OSX, set the mouseEnabled property of the CC3Layer. Once
+ * the CC3Layer is mouse-enabled, this method is invoked automatically whenever a mouse event occurs.
  *
- * Node selection from tap events can also be handled by using the unprojectPoint:
- * method of the active camera to convert the 2D touch-point to a 3D ray, and
- * then using the nodesIntersectedByGlobalRay: method to detect the nodes whose
- * bounding volumes are intersected (punctured) by the ray. See the notes of the
- * pickNodeFromTouchEvent:at: method for further discussion of the relative merits
- * of these two node selection techniques.
+ * Since the touch-move or mouse-move (hover) events are both voluminous and seldom used, the
+ * handling of the ccTouchMoved:withEvent: and mouseMoved: methods have been left out of the
+ * default CC3Layer implementation. To receive and handle touch-move events, copy the commented-out
+ * ccTouchMoved:withEvent: template method implementation in CC3Layer to your customized CC3Layer
+ * subclass. To receive and handle mouse-move events while hovering, implement the ccMouseMoved:
+ * method in your customized CC3Layer, and set the acceptsMouseMovedEvents property of the main
+ * window to YES during app initialization
+ *
+ * This default implementation forwards touch-down events to the pickNodeFromTouchEvent:at: method,
+ * which determines which 3D node is under the touch point, and does nothing with touch-move and
+ * touch-up events. For the touch-down events, object picking is handled asynchronously, and once the
+ * node is retrieved, the nodeSelected:byTouchEvent:at: callback method will be invoked on this instance.
+ *
+ * Node picking from touch events is somewhat expensive. If you do not require node picking, you
+ * should override this implementation and avoid forwarding the touch-down events to this method.
+ * You can also override this method to enhance the touch interaction, such as swipe detection,
+ * or dragging & dropping objects. You can use the implementation of this method as a template
+ * for enhancements.
+ *
+ * Node selection from tap events can also be handled by using the unprojectPoint: method of the
+ * active camera to convert the 2D touch-point to a 3D ray, and then using the 
+ * nodesIntersectedByGlobalRay: method to detect the nodes whose bounding volumes are intersected
+ * (punctured) by the ray. See the notes of the pickNodeFromTouchEvent:at: method for further
+ * discussion of the relative merits of these two node selection techniques.
  */
 -(void) touchEvent: (uint) touchType at: (CGPoint) touchPoint;
 
@@ -971,6 +1136,38 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  */
 -(id) pickVisitorClass;
 
+/** 
+ * The render surface being used to draw when picking nodes from touch events.
+ *
+ * The value of this property is retrieved from the pickingSurface property of the surface
+ * manager in the viewSurfaceManager property.
+ *
+ * For economy, if multisampling is not active and the viewSurface is readable, the
+ * viewSurface can also be used as the picking surface. For that reason, if both of those
+ * conditions hold, and this property has not been set to YES directly, this property will
+ * return the same surface as the viewSurface property. Otherwise, this property will return
+ * a surface dedicated for use in rendering the scene during node picking.
+ *
+ * You can force the use of a dedicated picking surface, even if multisampling is not in use
+ * and the viewSurface is readable, by setting the shouldUseDedicatedPickingSurface property
+ * of the viewSurfaceManager to YES. There are situations where this may be preferrable, such
+ * as if there is no backdrop, and some of the objects contain  transparency. In that situation,
+ * using the viewSurface for both view rendering and node picking rendering may result in 
+ * unwanted visual artifacts on the transparent nodes during node picking resulting from touch
+ * events. To avoid these artifacts, you can set the shouldUseDedicatedPickingSurface property
+ * of the viewSurfaceManager to YES, at any time.
+ */
+@property(nonatomic, strong, readonly) id<CC3RenderSurface> pickingSurface;
+
+/**
+ * When set to YES, the scene will be displayed on the screen as rendered while picking a
+ * node from a touch event, instead of the normal scene display render.
+ *
+ * This is a development-time diagnostic property, that can be used to debug node picking
+ * from touch events.
+ */
+@property(nonatomic, assign) BOOL shouldDisplayPickingRender;
+
 @end
 
 
@@ -1011,40 +1208,26 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  * being picked and dispatched to the CC3Scene on each pair of  rendering and updating passes.
  */
 @interface CC3TouchedNodePicker : NSObject {
-	CC3NodePickingVisitor* pickVisitor;
-	CC3Scene* scene;
-	CC3Node* pickedNode;
-	uint touchQueue[kCC3TouchQueueLength];
-	uint queuedTouchCount;
-	CGPoint touchPoint;
-	BOOL wasTouched;
-	BOOL wasPicked;
+	CC3NodePickingVisitor* _pickVisitor;
+	CC3Scene* __unsafe_unretained _scene;
+	CC3Node* _pickedNode;
+	uint _touchQueue[kCC3TouchQueueLength];
+	uint _queuedTouchCount;
+	CGPoint _touchPoint;
+	BOOL _wasTouched;
+	BOOL _wasPicked;
 }
 
 /**
- * The visitor that is used to visit the nodes to draw them when picking
- * a node from touch selection.
+ * The visitor that is used to visit the nodes to draw them when picking a node from touch selection.
  *
- * This property defaults to an instance of the class returned by the
- * pickVisitorClass method of the CC3Scene.
- * The application can set a different visitor if desired.
+ * This property defaults to an instance of the class returned by the pickVisitorClass method of the
+ * CC3Scene. The application can set a different visitor if desired.
  */
-@property(nonatomic, retain) CC3NodePickingVisitor* pickVisitor;
+@property(nonatomic, strong) CC3NodePickingVisitor* pickVisitor;
 
-/** The most recent touch point in OpenGL ES coordinates. */
-@property(nonatomic, readonly) CGPoint glTouchPoint;
-
-/** Initializes this instance on the specified CC3Scene. */
--(id) initOnScene: (CC3Scene*) aCC3Scene;
-
-/** Allocates and initializes an autoreleased instance on the specified CC3Scene. */
-+(id) pickerOnScene: (CC3Scene*) aCC3Scene;
-
-/** @deprecated Renamed to initOnScene:. */
--(id) initOnWorld: (CC3Scene*) aCC3Scene DEPRECATED_ATTRIBUTE;
-
-/** @deprecated Renamed to pickerOnScene:. */
-+(id) handlerOnWorld: (CC3Scene*) aCC3Scene DEPRECATED_ATTRIBUTE;
+/** The most recent touch point in cocos2d coordinates. */
+@property(nonatomic, readonly) CGPoint touchPoint;
 
 /**
  * Indicates that a node should be picked for the touch event of the specified
@@ -1093,156 +1276,26 @@ static const ccColor4F kCC3DefaultLightColorAmbientScene = { 0.2, 0.2, 0.2, 1.0 
  */
 -(void) dispatchPickedNode;
 
-@end
 
-
-#pragma mark -
-#pragma mark CC3ViewportManager
-
-/**
- * CC3ViewportManager manages the GL viewport and device orientation for the 3D scene,
- * including handling coordinate system rotation based on the device orientation,
- * and conversion of locations and points between the 3D and 2D coordinate systems. 
- */
-@interface CC3ViewportManager : NSObject {
-	CC3Matrix* deviceRotationMatrix;
-	CC3Scene* scene;
-	CGRect layerBounds;
-	CC3Viewport viewport;
-	CC3Vector glToCC2PointMapX;
-	CC3Vector glToCC2PointMapY;
-	CC3Vector cc2ToGLPointMapX;
-	CC3Vector cc2ToGLPointMapY;
-	BOOL isFullView : 1;
-}
-
-/** The bounding box of the CC3Layer the scene is drawing within. */
-@property(nonatomic, readonly) CGRect layerBounds;
-
-/**
- * The bounding box of the CC3Layer the scene is drawing within, in coordinates local
- * to the layer itself. The origin of the returned rectangle will be {0, 0}, and the
- * size will be the same as the rectangle returned by the layerBounds property.
- */
-@property(nonatomic, readonly) CGRect layerBoundsLocal;
-
-/** The viewport used by the 3D scene. */
-@property(nonatomic, readonly) CC3Viewport viewport;
-
-/**
- * A rotation matrix to hold the transform required to align with the current device orientation.
- * The rotation matrix is updated automatically whenever the device orientation changes.
- */
-@property(nonatomic, retain) CC3Matrix* deviceRotationMatrix;
-
-/** Returns whether the viewport covers the full UIView. */
-@property(nonatomic, readonly) BOOL isFullView;
+#pragma mark Allocation and initialization
 
 /** Initializes this instance on the specified CC3Scene. */
 -(id) initOnScene: (CC3Scene*) aCC3Scene;
 
 /** Allocates and initializes an autoreleased instance on the specified CC3Scene. */
-+(id) viewportManagerOnScene: (CC3Scene*) aCC3Scene;
-
-/**
- * Template method that populates this instance from the specified other instance.
- *
- * This method is invoked automatically during object copying via the copy or
- * copyWithZone: method. In most situations, the application should use the
- * copy method, and should never need to invoke this method directly.
- * 
- * Subclasses that add additional instance state (instance variables) should extend
- * copying by overriding this method to copy that additional state. Superclass that
- * override this method should be sure to invoke the superclass implementation to
- * ensure that superclass state is copied as well.
- */
--(void) populateFrom: (CC3ViewportManager*) another;
-
-/** @deprecated Renamed to initOnScene:. */
--(id) initOnWorld: (CC3Scene*) aCC3Scene DEPRECATED_ATTRIBUTE;
-
-/** @deprecated Renamed to viewportManagerOnScene:. */
-+(id) viewportManagerOnWorld: (CC3Scene*) aCC3Scene DEPRECATED_ATTRIBUTE;
-
-
-#pragma mark Drawing
-
-/**
- * Template method that opens the viewport for 3D drawing
- *
- * Sets the GL viewport to the contained viewport, and if the viewport does not cover
- * the screen, applies GL scissors to the viewport so that GL drawing for this scene
- * does not extend beyond the layer bounds.
- */
--(void) openViewport;
-
-/**
- * Template method that closes the viewport for 3D drawing.
- *
- * Default implementation does nothing. The GL viewport and scissor will automatically
- * be reset to their 2D values when CC3OpenGLES11Engine is closed by the 3D scene. If that
- * behaviour is changed by the application, it may be necessary to override this method
- * to handle changing the viewport to what the 2D scene expects. In general, the 2D and
- * 3D scenes have different viewports only when the 3D layer does not cover the window.
- */
--(void) closeViewport;
-
-
-#pragma mark Converting points
-
-/**
- * Converts the specified point, which is in the coordinate system of the cocos2d layer,
- * into the coordinate system used by the 3D GL environment, taking into consideration
- * the size and position of the layer/viewport, and the orientation of the device.
- *
- * The cocos2d layer coordinates are relative, and measured from the bottom-left corner
- * of the layer, which might be rotated relative to the device orientation, and which
- * might not be in the corner of the UIView or screen.
- *
- * The GL cocordinates are absolute, relative to the bottom-left corner of the underlying 
- * UIView, which does not rotate with device orientation, is always in portait orientation,
- * and is always in the corner of the screen.
- *
- * One can think of the GL coordinates as absolute and fixed relative to the portrait screen,
- * and the layer coordinates as relative to layer position and size, and device orientation.
- */
--(CGPoint) glPointFromCC2Point: (CGPoint) cc2Point;
-
-/**
- * Converts the specified point, which is in the coordinate system of the 3D GL environment,
- * into the coordinate system used by the cocos2d layer, taking into consideration the size
- * and position of the layer/viewport, and the orientation of the device.
- *
- * The cocos2d layer coordinates are relative, and measured from the bottom-left corner
- * of the layer, which might be rotated relative to the device orientation, and which
- * might not be in the corner of the UIView or screen.
- *
- * The GL cocordinates are absolute, relative to the bottom-left corner of the underlying 
- * UIView, which does not rotate with device orientation, is always in portait orientation,
- * and is always in the corner of the screen.
- *
- * One can think of the GL coordinates as absolute and fixed relative to the portrait screen,
- * and the layer coordinates as relative to layer position and size, and device orientation.
- */
--(CGPoint) cc2PointFromGLPoint: (CGPoint) glPoint;
-
-
-#pragma mark Device orientation
-
-/**
- * Using the specified view bounds and deviceOrientation, updates the GL viewport and the
- * device rotation matrix, and establishes conversion mappings between GL points and cocos2d
- * points, in both directions. These conversion mappings are used by the complimentary methods
- * glPointFromCC2Point: and cc2PointFromGLPoint:.
- *
- * The viewport is set to match the specified bounds.
- *
- * The device rotation matrix is calculated from the angle of rotation associated with each
- * device orientation.
- *
- * This method is invoked automatically by the CC3Layer when the orientation of the
- * device changes. Usually, the application never needs to invoke this method directly.
- */
--(void) updateBounds: (CGRect) bounds withDeviceOrientation: (ccDeviceOrientation) deviceOrientation;
++(id) pickerOnScene: (CC3Scene*) aCC3Scene;
 
 @end
+
+
+#pragma mark -
+#pragma mark CC3Node extension for scene
+
+/** Extension to support scenes. */
+@interface CC3Node (Scene)
+
+/** Returns whether this node is a scene. This implementation returns NO. */
+@property(nonatomic, readonly) BOOL isScene;
+
+@end
+

@@ -1,9 +1,9 @@
 /*
  * CC3Rotator.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -105,7 +105,7 @@ typedef enum {
  *
  * This base class always returns nil. Subclasses that support changing rotation will override.
  */
-@property(nonatomic, retain, readonly) CC3Matrix* rotationMatrix;
+@property(nonatomic, strong, readonly) CC3Matrix* rotationMatrix;
 
 /**
  * The rotational orientation of the node in 3D space, relative to the parent of the
@@ -150,7 +150,7 @@ typedef enum {
  *
  * Always returns nil. Subclasses that support target tracking will override.
  */
-@property(nonatomic, assign, readonly) CC3Node* target;
+@property(nonatomic, unsafe_unretained, readonly) CC3Node* target;
 
 /**
  * Indicates whether the node should track the node set in the target
@@ -177,6 +177,18 @@ typedef enum {
  * Subclasses that support target locations will override.
  */
 @property(nonatomic, readonly) BOOL shouldRotateToTargetLocation;
+
+/**
+ * If the specified node is the target node at which this rotator is pointed,
+ * the target of this rotator is set to nil.
+ *
+ * This method is required in order to be able to clear the target without retrieving it
+ * outside this object to test if it is nil. Since the target is not retained, it may be
+ * deallocated while this rotator still maintains a reference to it. Any subsequent attempt
+ * to retrieve the target reference will result in ARC attempting to retain and autorelease
+ * it, which will create a zombie object error.
+ */
+-(BOOL) clearIfTarget: (CC3Node*) aNode;
 
 
 #pragma mark Allocation and initialization
@@ -238,29 +250,25 @@ typedef enum {
  * Subclasses may also specify other rotational mechanisms (such as pointing).
  *
  *
- * The rotator maintains an internal rotationMatrix, separate from the node's transformMatrix,
+ * The rotator maintains an internal rotationMatrix, separate from the node's globalTransformMatrix,
  * and the rotator can use this rotationMatrix to convert between different rotational
  * specifications. As such, the rotation of a node can be set using any one of the above
  * specifications, and read back as any of the other specifications.
  */
 @interface CC3MutableRotator : CC3Rotator {
-	CC3Matrix* rotationMatrix;
-	CC3Vector4 rotationVector;
-	GLubyte incrementalRotationCount;
-	GLubyte rotationType : 4;
-	GLubyte orthonormalizationStartColumnNumber : 2;
-	BOOL isRotationDirty : 1;
-	
-	// Allocated for CC3DirectionalRotator subclass to conserve state memory
-	BOOL shouldReverseForwardDirection : 1;
-
-	// Allocated for CC3TargettingRotator subclass to conserve state memory
-	GLubyte targettingConstraint : 4;
-	BOOL isNewTarget : 1;
-	BOOL shouldTrackTarget : 1;
-	BOOL shouldAutotargetCamera : 1;
-	BOOL isTrackingForBumpMapping : 1;
-	BOOL isTargetLocationDirty : 1;
+	CC3Matrix* _rotationMatrix;
+	CC3Vector4 _rotationVector;
+	GLubyte _incrementalRotationCount;
+	GLubyte _rotationType : 4;
+	GLubyte _targettingConstraint : 4;				// For CC3TargettingRotator subclass
+	GLubyte _orthonormalizationStartColumnNumber : 2;
+	BOOL _isRotationDirty : 1;
+	BOOL _shouldReverseForwardDirection : 1;		// For CC3DirectionalRotator subclass
+	BOOL _isNewTarget : 1;							// For CC3TargettingRotator subclass
+	BOOL _shouldTrackTarget : 1;					// For CC3TargettingRotator subclass
+	BOOL _shouldAutotargetCamera : 1;				// For CC3TargettingRotator subclass
+	BOOL _isTrackingForBumpMapping : 1;				// For CC3TargettingRotator subclass
+	BOOL _isTargetLocationDirty : 1;				// For CC3TargettingRotator subclass
 }
 
 /**
@@ -271,7 +279,7 @@ typedef enum {
  * The rotation matrix for each instance is local to the node and does not include rotational
  * information about the node's ancestors.
  */
-@property(nonatomic, retain, readwrite) CC3Matrix* rotationMatrix;
+@property(nonatomic, strong, readwrite) CC3Matrix* rotationMatrix;
 
 /**
  * The rotational orientation of the node in 3D space, relative to the parent of the
@@ -434,7 +442,7 @@ typedef enum {
  * or should rotate the positive-Z-axis to the forwardDirection.
  */
 @interface CC3DirectionalRotator : CC3MutableRotator {
-	CC3Vector referenceUpDirection;
+	CC3Vector _referenceUpDirection;
 }
 
 /**
@@ -551,7 +559,7 @@ typedef enum {
  * as the target node, or the node using this rotator, move.
  */
 @interface CC3TargettingRotator : CC3DirectionalRotator {
-	CC3Node* target;
+	CC3Node* __unsafe_unretained _target;
 }
 
 /**
@@ -597,10 +605,10 @@ typedef enum {
  * is set to YES, the node will track the target so that it always points to the
  * target, regardless of how the target and this node move through the 3D scene.
  *
- * The target is not retained. If you destroy the target node, you must remove
- * it as the target of this rotator.
+ * The target is held as a weak reference. If you destroy the target node, you must
+ * remove it as the target of this rotator.
  */
-@property(nonatomic, assign, readwrite) CC3Node* target;
+@property(nonatomic, unsafe_unretained, readwrite) CC3Node* target;
 
 /**
  * Indicates whether the node should track the node set in the target property
@@ -639,7 +647,7 @@ typedef enum {
  * can be tracked by the node for the purpose of updating the lighting of a contained
  * bump-map texture, instead of rotating to face the light, as normally occurs with tracking.
  * 
- * This property indicates whether the node should update its globalLightLocation
+ * This property indicates whether the node should update its globalLightPosition
  * from the tracked location of the light, instead of rotating to face the light.
  *
  * The initial property is set to NO.

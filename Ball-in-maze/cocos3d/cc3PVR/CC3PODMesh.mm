@@ -1,9 +1,9 @@
 /*
  * CC3PODMesh.mm
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -34,20 +34,22 @@
 #import "CC3VertexArraysPODExtensions.h"
 
 
-#pragma mark CC3VertexArrayMesh extensions for PVR POD data
+#pragma mark CC3Mesh extensions for PVR POD data
 
-@implementation CC3VertexArrayMesh (PVRPOD)
+@implementation CC3Mesh (PVRPOD)
 
--(id) initAtIndex: (int) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
+-(id) initAtIndex: (GLint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
 	if ( (self = [super initAtIndex: aPODIndex fromPODResource: aPODRez]) ) {
 		SPODMesh* psm = (SPODMesh*)[aPODRez meshPODStructAtIndex: aPODIndex];
 		LogRez(@"Creating %@ at index %i from: %@", [self class], aPODIndex, NSStringFromSPODMesh(psm));
 		
-		self.vertexLocations = [CC3VertexLocations arrayFromSPODMesh: psm];
-		
-		self.vertexNormals = [CC3VertexNormals arrayFromSPODMesh: psm];
-		
-		self.vertexColors = [CC3VertexColors arrayFromSPODMesh: psm];
+		self.vertexLocations = [CC3VertexLocations arrayFromCPODData: &psm->sVertex fromSPODMesh: psm];
+		self.vertexNormals = [CC3VertexNormals arrayFromCPODData: &psm->sNormals fromSPODMesh: psm];
+		self.vertexTangents = [CC3VertexTangents arrayFromCPODData: &psm->sTangents fromSPODMesh: psm];
+		self.vertexBitangents = [CC3VertexTangents arrayFromCPODData: &psm->sBinormals fromSPODMesh: psm];
+		self.vertexColors = [CC3VertexColors arrayFromCPODData: &psm->sVtxColours fromSPODMesh: psm];
+		self.vertexBoneWeights = [CC3VertexBoneWeights arrayFromCPODData: &psm->sBoneWeight fromSPODMesh: psm];
+		self.vertexBoneIndices = [CC3VertexBoneIndices arrayFromCPODData: &psm->sBoneIdx fromSPODMesh: psm];
 		
 		for (GLuint i = 0; i < psm->nNumUVW; i++) {
 			CC3VertexTextureCoordinates* texCoords;
@@ -56,31 +58,31 @@
 			[self addTextureCoordinates: texCoords];
 		}
 		
-		self.vertexIndices = [CC3VertexIndices arrayFromSPODMesh: psm];
+		self.vertexIndices = [CC3VertexIndices arrayFromCPODData: &psm->sFaces fromSPODMesh: psm];
 		
 		// Once all vertex arrays are populated, if the data is interleaved, mark it as such and
 		// swap the reference to the original data within the SPODMesh, so that CC3VertexArray
 		// can take over responsibility for managing the data memory allocated by CPVRTModelPOD.
-		// This allows CC3VertexArray to release the vertex data from memory once it has been
-		// bound to a GL buffer in the graphics hardware.
-		// We can't just NULL the interleaved pointer reference, because a NULL indicates to
-		// CPVRTModelPOD that the data is contained within the individual vertex arrays, and
-		// it will try to free those instead. So, we create a "dummy" memory allocation for
-		// CPVRTModelPOD to free when it needs to. The original pointer is now being managed
-		// by the CC3VertexLocations instance.
+		// This allows CC3VertexArray to release the vertex data from memory once it has been bound
+		// to a GL buffer in the graphics hardware, and allows the CPVRTModelPOD to be released
+		// from memory without it removing the vertex data in the process. We can't just NULL the
+		// interleaved pointer reference, because a NULL indicates to CPVRTModelPOD that the data
+		// is contained within the individual vertex arrays, and it will try to free those instead.
+		// So, we create a "dummy" memory allocation for CPVRTModelPOD to free when it needs to.
+		// The original pointer is now being managed by the CC3VertexLocations instance.
 		if (psm->pInterleaved != NULL) {
-			shouldInterleaveVertices = YES;
+			_shouldInterleaveVertices = YES;
 			psm->pInterleaved = (PVRTuint8*)calloc(1, sizeof(PVRTuint8));
 		} else {
-			shouldInterleaveVertices = NO;
+			_shouldInterleaveVertices = NO;
 		}
 		
 	}
 	return self;
 }
 
-+(id) meshAtIndex: (int) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
-	return [[[self alloc] initAtIndex: aPODIndex fromPODResource: aPODRez] autorelease];
++(id) meshAtIndex: (GLint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez {
+	return [[self alloc] initAtIndex: aPODIndex fromPODResource: aPODRez];
 }
 
 @end
@@ -90,16 +92,16 @@
 
 @implementation CC3PODMesh
 
--(int) podIndex { return podIndex; }
+-(GLint) podIndex { return _podIndex; }
 
--(void) setPodIndex: (int) aPODIndex { podIndex = aPODIndex; }
+-(void) setPodIndex: (GLint) aPODIndex { _podIndex = aPODIndex; }
 
 // Template method that populates this instance from the specified other instance.
 // This method is invoked automatically during object copying via the copyWithZone: method.
 -(void) populateFrom: (CC3PODMesh*) another {
 	[super populateFrom: another];
 	
-	podIndex = another.podIndex;
+	_podIndex = another.podIndex;
 }
 
 // Deprecated texture inversion. When this is invoked on a POD mesh, it does need inversion.

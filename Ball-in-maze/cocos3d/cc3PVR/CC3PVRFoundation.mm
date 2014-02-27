@@ -1,9 +1,9 @@
 /*
  * CC3PVRFoundation.mm
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -31,10 +31,12 @@
 
 extern "C" {
 	#import "CC3Foundation.h"	// extern must be first, since foundation also imported via other imports
+	#import "CC3OpenGLFoundation.h"
+	#import "CC3Matrix4x4.h"
 }
 #import "CC3PVRFoundation.h"
 #import "CC3PVRTModelPOD.h"
-#import "CC3Matrix4x4.h"
+#import "CC3PVRTPFXParser.h"
 
 
 NSString* NSStringFromSPODNode(PODStructPtr pSPODNode) {
@@ -69,8 +71,9 @@ NSString* NSStringFromSPODNode(PODStructPtr pSPODNode) {
 	[desc appendFormat: @"%@", first ? @"" : @")"];
 	[desc appendFormat: @"\n\tposition: %@", (psn->pfAnimPosition ? NSStringFromCC3Vector(*(CC3Vector*)psn->pfAnimPosition) : @"none")];
 	[desc appendFormat: @", quaternion: %@", (psn->pfAnimRotation ? NSStringFromCC3Vector4(*(CC3Vector4*)psn->pfAnimRotation) : @"none")];
-	[desc appendFormat: @", scale: %@)", (psn->pfAnimScale ? NSStringFromCC3Vector(*(CC3Vector*)psn->pfAnimScale) : @"none")];
-	[desc appendFormat: @", matrix: %@)", (psn->pfAnimMatrix ? NSStringFromCC3Matrix4x4((CC3Matrix4x4*)psn->pfAnimMatrix) : @"none")];
+	[desc appendFormat: @", scale: %@", (psn->pfAnimScale ? NSStringFromCC3Vector(*(CC3Vector*)psn->pfAnimScale) : @"none")];
+	[desc appendFormat: @", matrix: %@", (psn->pfAnimMatrix ? NSStringFromCC3Matrix4x4((CC3Matrix4x4*)psn->pfAnimMatrix) : @"none")];
+	[desc appendFormat: @", %i bytes of user data at %p", psn->nUserDataSize, psn->pUserData];
 	return desc;
 }
 
@@ -168,6 +171,7 @@ GLenum GLElementTypeFromEPVRTDataType(uint ePVRTDataType) {
 		case EPODDataUnsignedByteNorm:
 		case EPODDataARGB:
 		case EPODDataRGBA:
+		case EPODDataUBYTE4:
 			return GL_UNSIGNED_BYTE;
 		case EPODDataShort:
 		case EPODDataShortNorm:
@@ -177,7 +181,21 @@ GLenum GLElementTypeFromEPVRTDataType(uint ePVRTDataType) {
 			return GL_UNSIGNED_SHORT;
 		default:
 			LogError(@"Unknown EPVRTDataType '%@'", NSStringFromEPVRTDataType(ePVRTDataType));
-			return GL_BYTE;
+			return GL_UNSIGNED_BYTE;
+	}
+}
+
+BOOL CC3ShouldNormalizeEPVRTDataType(uint ePVRTDataType) {
+	switch (ePVRTDataType) {
+		case EPODDataByteNorm:
+		case EPODDataUnsignedByteNorm:
+		case EPODDataShortNorm:
+		case EPODDataUnsignedShortNorm:
+		case EPODDataARGB:
+		case EPODDataRGBA:
+			return YES;
+
+		default: return NO;
 	}
 }
 
@@ -234,7 +252,7 @@ GLenum GLDrawingModeForSPODMesh(PODStructPtr aSPODMesh) {
 //			return usingStrips ? GL_LINE_STRIP : GL_LINES;
 		default:
 			LogError(@"Unknown EPODPrimitiveType %u", psm->ePrimitiveType);
-			return GL_TRIANGLE_STRIP;
+			return GL_TRIANGLES;
 	}
 }
 
@@ -245,6 +263,7 @@ NSString* NSStringFromSPODCamera(PODStructPtr pSPODCamera) {
 	[desc appendFormat: @", near: %.2f", psc->fNear];
 	[desc appendFormat: @", far: %.2f", psc->fFar];
 	[desc appendFormat: @", target index: %i", psc->nIdxTarget];
+	[desc appendFormat: @", FOV is %@animated", (psc->pfAnimFOV ? @"" : @"not ")];
 	return desc;
 }
 
@@ -252,12 +271,12 @@ NSString* NSStringFromSPODLight(PODStructPtr pSPODLight) {
 	SPODLight* psl = (SPODLight*)pSPODLight;
 	NSMutableString* desc = [NSMutableString stringWithCapacity: 100];
 	[desc appendFormat: @"SPODLight type: %@", NSStringFromEPODLight(psl->eType)];
-	[desc appendFormat: @", color: (%.2f, %.2f, %.2f)", psl->pfColour[0], psl->pfColour[1], psl->pfColour[2]];
-	[desc appendFormat: @", falloff angle: %.2f", psl->fFalloffAngle];
-	[desc appendFormat: @", falloff expo: %.2f", psl->fFalloffExponent];
-	[desc appendFormat: @", const atten: %.2f", psl->fConstantAttenuation];
-	[desc appendFormat: @", linear atten: %.2f", psl->fLinearAttenuation];
-	[desc appendFormat: @", quad atten: %.2f", psl->fQuadraticAttenuation];
+	[desc appendFormat: @", color: (%.3f, %.3f, %.3f)", psl->pfColour[0], psl->pfColour[1], psl->pfColour[2]];
+	[desc appendFormat: @", falloff angle: %.3f", psl->fFalloffAngle];
+	[desc appendFormat: @", falloff expo: %.3f", psl->fFalloffExponent];
+	[desc appendFormat: @", const atten: %.3f", psl->fConstantAttenuation];
+	[desc appendFormat: @", linear atten: %.3f", psl->fLinearAttenuation];
+	[desc appendFormat: @", quad atten: %3f", psl->fQuadraticAttenuation];
 	[desc appendFormat: @", target index: %i", psl->nIdxTarget];
 	return desc;
 }
@@ -293,7 +312,6 @@ NSString* NSStringFromSPODMaterial(PODStructPtr pSPODMaterial) {
 	[desc appendFormat: @"\n\tblend color: (%.2f, %.2f, %.2f, %.2f)", psm->pfBlendColour[0], psm->pfBlendColour[1], psm->pfBlendColour[2], psm->pfBlendColour[3]];
 	[desc appendFormat: @", blend factor: (%.2f, %.2f, %.2f, %.2f)", psm->pfBlendFactor[0], psm->pfBlendFactor[1], psm->pfBlendFactor[2], psm->pfBlendFactor[3]];
 	[desc appendFormat: @"\n\ttexture indices: (diffuse: %i", psm->nIdxTexDiffuse];
-	[desc appendFormat: @", ambient: %i", psm->nIdxTexAmbient];
 	[desc appendFormat: @", ambient: %i", psm->nIdxTexAmbient];
 	[desc appendFormat: @", specular color: %i", psm->nIdxTexSpecularColour];
 	[desc appendFormat: @", specular level: %i", psm->nIdxTexSpecularLevel];
@@ -395,4 +413,186 @@ NSString* NSStringFromSPODTexture(PODStructPtr pSPODTexture) {
 			[NSString stringWithUTF8String: pst->pszName]];
 }
 
+
+#pragma mark -
+#pragma mark PFX Structures and functions
+
+NSString* NSStringFromSPVRTPFXParserEffect(PFXClassPtr pSPVRTPFXParserEffect) {
+	SPVRTPFXParserEffect* pfxEffect = (SPVRTPFXParserEffect*)pSPVRTPFXParserEffect;
+	NSMutableString* desc = [NSMutableString stringWithCapacity: 500];
+	[desc appendFormat: @"SPVRTPFXParserEffect"];
+	[desc appendFormat: @" named %@", [NSString stringWithUTF8String: pfxEffect->Name.c_str()]];
+	[desc appendFormat: @"\n\tvertex shader: %@", [NSString stringWithUTF8String: pfxEffect->VertexShaderName.c_str()]];
+	[desc appendFormat: @"\n\tfragment shader: %@", [NSString stringWithUTF8String: pfxEffect->FragmentShaderName.c_str()]];
+	
+	CPVRTArray<SPVRTPFXParserSemantic> attributes = pfxEffect->Attributes;
+	GLuint attrCount = attributes.GetSize();
+	[desc appendFormat: @"\n\twith %u attributes:", attrCount];
+	for(GLuint i = 0; i < attrCount; i++) {
+		[desc appendFormat: @"\n\t\t%@:", NSStringFromSPVRTPFXParserSemantic(&attributes[i], @"attribute")];
+	}
+
+	CPVRTArray<SPVRTPFXParserSemantic> uniforms = pfxEffect->Uniforms;
+	GLuint uniformCount = uniforms.GetSize();
+	[desc appendFormat: @"\n\twith %u uniforms:", uniformCount];
+	for(GLuint i = 0; i < uniformCount; i++) {
+		[desc appendFormat: @"\n\t\t%@:", NSStringFromSPVRTPFXParserSemantic(&uniforms[i], @"uniform")];
+	}
+	
+	CPVRTArray<SPVRTPFXParserEffectTexture> textures = pfxEffect->Textures;
+	GLuint texCount = textures.GetSize();
+	[desc appendFormat: @"\n\twith %u textures:", texCount];
+	for(GLuint i = 0; i < texCount; i++) {
+		[desc appendFormat: @"\n\t\t%@:", NSStringFromSPVRTPFXParserEffectTexture(&textures[i])];
+	}
+	
+	CPVRTArray<SPVRTTargetPair> targets = pfxEffect->Targets;
+	GLuint targCount = targets.GetSize();
+	[desc appendFormat: @"\n\twith %u targets:", targCount];
+	for(GLuint i = 0; i < targCount; i++) {
+		[desc appendFormat: @"\n\t\ttarget named %@ of type %@",
+		 [NSString stringWithUTF8String: targets[i].TargetName.c_str()],
+		 [NSString stringWithUTF8String: targets[i].BufferType.c_str()]];
+	}
+
+	[desc appendFormat: @"\n\tannotation: %@", [NSString stringWithUTF8String: pfxEffect->Annotation.c_str()]];
+	return desc;
+}
+
+NSString* NSStringFromSPVRTPFXParserSemantic(PFXClassPtr pSPVRTPFXParserSemantic, NSString* typeName) {
+	SPVRTPFXParserSemantic* pfxSemantic = (SPVRTPFXParserSemantic*)pSPVRTPFXParserSemantic;
+	NSMutableString* desc = [NSMutableString stringWithCapacity: 100];
+	[desc appendFormat: @"SPVRTPFXParserSemantic"];
+	[desc appendFormat: @" for GLSL %@ %@", typeName, [NSString stringWithUTF8String: pfxSemantic->pszName]];
+	[desc appendFormat: @" with semantic %@", [NSString stringWithUTF8String: pfxSemantic->pszValue]];
+	[desc appendFormat: @" at %u", pfxSemantic->nIdx];
+	return desc;
+}
+
+NSString* NSStringFromSPVRTPFXParserEffectTexture(PFXClassPtr pSPVRTPFXParserEffectTexture) {
+	SPVRTPFXParserEffectTexture* pfxTex = (SPVRTPFXParserEffectTexture*)pSPVRTPFXParserEffectTexture;
+	NSMutableString* desc = [NSMutableString stringWithCapacity: 100];
+	[desc appendFormat: @"SPVRTPFXParserEffectTexture"];
+	[desc appendFormat: @" named %@", [NSString stringWithUTF8String: pfxTex->Name.c_str()]];
+	[desc appendFormat: @" in texture unit %u", pfxTex->nNumber];
+	return desc;
+}
+
+NSString* NSStringFromSPVRTPFXParserShader(PFXClassPtr pSPVRTPFXParserShader) {
+	SPVRTPFXParserShader* pfxShader = (SPVRTPFXParserShader*)pSPVRTPFXParserShader;
+	NSMutableString* desc = [NSMutableString stringWithCapacity: 100];
+	[desc appendFormat: @"SPVRTPFXParserShader"];
+	[desc appendFormat: @" named %@", [NSString stringWithUTF8String: pfxShader->Name.c_str()]];
+	if (pfxShader->bUseFileName) {
+		[desc appendFormat: @" from file %@", [NSString stringWithUTF8String: pfxShader->pszGLSLfile]];
+	} else {
+		[desc appendFormat: @" from embedded GLSL source code"];
+	}
+	return desc;
+}
+
+NSString* NSStringFromSPVRTPFXParserTexture(PFXClassPtr pSPVRTPFXParserTexture) {
+	SPVRTPFXParserTexture* pfxTex = (SPVRTPFXParserTexture*)pSPVRTPFXParserTexture;
+	NSMutableString* desc = [NSMutableString stringWithCapacity: 150];
+	[desc appendFormat: @"SPVRTPFXParserTexture"];
+	[desc appendFormat: @" named %@", [NSString stringWithUTF8String: pfxTex->Name.c_str()]];
+	[desc appendFormat: @" from file %@", [NSString stringWithUTF8String: pfxTex->FileName.c_str()]];
+	[desc appendFormat: @" wrap (S,T,R): (%@, %@, %@)", NSStringFromETextureWrap(pfxTex->nWrapS),
+														NSStringFromETextureWrap(pfxTex->nWrapT),
+														NSStringFromETextureWrap(pfxTex->nWrapR)];
+	[desc appendFormat: @" min: %@", NSStringFromETextureFilter(pfxTex->nMin)];
+	[desc appendFormat: @" mag: %@", NSStringFromETextureFilter(pfxTex->nMag)];
+	[desc appendFormat: @" mipmap: %@", NSStringFromETextureFilter(pfxTex->nMIP)];
+	[desc appendFormat: @" is render target: %@", NSStringFromBoolean(pfxTex->bRenderToTexture)];
+	return desc;
+}
+
+NSString* NSStringFromSPVRTPFXRenderPass(PFXClassPtr pSPVRTPFXRenderPass) {
+	SPVRTPFXRenderPass* pfxPass = (SPVRTPFXRenderPass*)pSPVRTPFXRenderPass;
+	NSMutableString* desc = [NSMutableString stringWithCapacity: 100];
+	[desc appendFormat: @"SPVRTPFXRenderPass"];
+	[desc appendFormat: @" to texture %@", [NSString stringWithUTF8String: pfxPass->pTexture->Name.c_str()]];
+	return desc;
+}
+
+GLenum GLTextureWrapFromETextureWrap(uint eTextureWrap) {
+	switch (eTextureWrap) {
+		case eWrap_Clamp:
+			return GL_CLAMP_TO_EDGE;
+		case eWrap_Repeat:
+			return GL_REPEAT;
+		default:
+			LogError(@"Unknown ETextureWrap '%@'", NSStringFromETextureWrap(eTextureWrap));
+			return GL_REPEAT;
+	}
+}
+
+NSString* NSStringFromETextureWrap(uint eTextureWrap) {
+	switch (eTextureWrap) {
+		case eWrap_Clamp:
+			return @"eWrap_Clamp";
+		case eWrap_Repeat:
+			return @"eWrap_Repeat";
+		default:
+			return [NSString stringWithFormat: @"unknown ETextureWrap (%u)", eTextureWrap];
+	}
+}
+
+GLenum GLMagnifyingFunctionFromETextureFilter(uint eTextureFilter) {
+	switch (eTextureFilter) {
+		case eFilter_Nearest:
+			return GL_NEAREST;
+		case eFilter_Linear:
+			return GL_LINEAR;
+		default:
+			LogError(@"Unknown ETextureFilter '%@'", NSStringFromETextureFilter(eTextureFilter));
+			return GL_LINEAR;
+	}
+}
+
+GLenum GLMinifyingFunctionFromMinAndMipETextureFilters(uint minETextureFilter, uint mipETextureFilter) {
+	switch(mipETextureFilter) {
+			
+		case eFilter_Nearest:							// Standard mipmapping
+			switch(minETextureFilter) {
+				case eFilter_Nearest:
+					return GL_NEAREST_MIPMAP_NEAREST;	// Nearest	- std. Mipmap
+				case eFilter_Linear:
+				default:
+					return GL_LINEAR_MIPMAP_NEAREST;	// Bilinear - std. Mipmap
+		}
+
+		case eFilter_Linear:							// Trilinear mipmapping
+			switch(minETextureFilter) {
+				case eFilter_Nearest:
+					return GL_NEAREST_MIPMAP_LINEAR;	// Nearest - Trilinear
+				case eFilter_Linear:
+				default:
+					return GL_LINEAR_MIPMAP_LINEAR;		// Bilinear - Trilinear
+		}
+
+		case eFilter_None:								// No mipmapping
+		default:
+			switch(minETextureFilter) {
+				case eFilter_Nearest:
+					return GL_NEAREST;					// Nearest - no Mipmap
+				case eFilter_Linear:
+				default:
+					return GL_LINEAR;					// Bilinear - no Mipmap
+			}
+	}
+}
+
+NSString* NSStringFromETextureFilter(uint eTextureFilter) {
+	switch (eTextureFilter) {
+		case eFilter_Nearest:
+			return @"eFilter_Nearest";
+		case eFilter_Linear:
+			return @"eFilter_Linear";
+		case eFilter_None:
+			return @"eFilter_None";
+		default:
+			return [NSString stringWithFormat: @"unknown ETextureFilter (%u)", eTextureFilter];
+	}
+}
 

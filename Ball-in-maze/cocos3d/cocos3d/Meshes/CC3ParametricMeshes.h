@@ -1,9 +1,9 @@
 /*
  * CC3ParametricMeshes.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,21 +29,20 @@
 
 /** @file */	// Doxygen marker
 
-#import "CC3VertexArrayMesh.h"
-#import "CC3CC2Extensions.h"
+#import "CC3Mesh.h"
 
 
 #pragma mark -
-#pragma mark CC3VertexArrayMesh parametric shapes extension
+#pragma mark CC3Mesh parametric shapes extension
 
 /**
- * This CC3VertexArrayMesh extension adds a number of methods for populating the mesh of
+ * This CC3Mesh extension adds a number of methods for populating the mesh of
  * a mesh programatically to create various parametric shapes and surfaces.
  *
  * To use the methods in this extension, instantiate a CC3Mesh, and then invoke one of
  * the methods in this extension  to populate the mesh vertices.
  */
-@interface CC3VertexArrayMesh (ParametricShapes)
+@interface CC3Mesh (ParametricShapes)
 
 
 #pragma mark Utility methods
@@ -162,7 +161,7 @@
  * the mesh will be populated with location, normal and texture coordinates for each vertex.
  */
 -(void) populateAsCenteredRectangleWithSize: (CGSize) rectSize
-							andTessellation: (ccGridSize) divsPerAxis;
+							andTessellation: (CC3Tessellation) divsPerAxis;
 
 /**
  * Populates this instance as a simple rectangular mesh of the specified size, with the specified
@@ -239,7 +238,7 @@
  */
 -(void) populateAsRectangleWithSize: (CGSize) rectSize
 				  andRelativeOrigin: (CGPoint) origin
-					andTessellation: (ccGridSize) divsPerAxis;
+					andTessellation: (CC3Tessellation) divsPerAxis;
 
 
 #pragma mark Populating parametric circular disk
@@ -284,7 +283,7 @@
  * (kCC3VertexContentLocation | kCC3VertexContentNormal | kCC3VertexContentTextureCoordinate), and
  * the mesh will be populated with location, normal and texture coordinates for each vertex.
  */
--(void) populateAsDiskWithRadius: (GLfloat) radius andTessellation: (ccGridSize) radialAndAngleDivs;
+-(void) populateAsDiskWithRadius: (GLfloat) radius andTessellation: (CC3Tessellation) radialAndAngleDivs;
 
 
 #pragma mark Populating parametric boxes
@@ -327,7 +326,7 @@
  *
  * Thanks to cocos3d user andyman for contributing the prototype code and texture template file for this method.
  */
--(void) populateAsSolidBox: (CC3BoundingBox) box;
+-(void) populateAsSolidBox: (CC3Box) box;
 
 /**
  * Populates this instance as a simple rectangular box mesh from the specified bounding box, which
@@ -366,7 +365,7 @@
  *
  * Thanks to cocos3d user andyman for contributing the prototype code and texture template file for this method.
  */
--(void) populateAsCubeMappedSolidBox: (CC3BoundingBox) box;
+-(void) populateAsCubeMappedSolidBox: (CC3Box) box;
 
 /**
  * Populates this instance as a simple rectangular box mesh from the specified bounding box, which
@@ -417,7 +416,7 @@
  *
  * Thanks to cocos3d user andyman for contributing the prototype code and texture template file for this method.
  */
--(void) populateAsSolidBox: (CC3BoundingBox) box withCorner: (CGPoint) corner;
+-(void) populateAsSolidBox: (CC3Box) box withCorner: (CGPoint) corner;
 
 /**
  * Populates this instance as a wire-frame box with the specified dimensions.
@@ -430,7 +429,7 @@
  *
  * This is a convenience method for creating a simple, but useful, shape.
  */
--(void) populateAsWireBox: (CC3BoundingBox) box;
+-(void) populateAsWireBox: (CC3Box) box;
 
 
 #pragma mark Populating parametric sphere
@@ -476,7 +475,7 @@
  * (X = 0) along the negative-Z axis. This texture orientation means that the center of the texture
  * will face the forwardDirection of the sphere node.
  */
--(void) populateAsSphereWithRadius: (GLfloat) radius andTessellation: (ccGridSize) divsPerAxis;
+-(void) populateAsSphereWithRadius: (GLfloat) radius andTessellation: (CC3Tessellation) divsPerAxis;
 
 
 #pragma mark Populating parametric cone
@@ -521,7 +520,7 @@
  */
 -(void) populateAsHollowConeWithRadius: (GLfloat) radius
 								height: (GLfloat) height
-					   andTessellation: (ccGridSize) angleAndHeightDivs;
+					   andTessellation: (CC3Tessellation) angleAndHeightDivs;
 
 
 #pragma mark Populating parametric lines
@@ -558,69 +557,6 @@
 -(void) populateAsLineStripWith: (GLuint) vertexCount
 					   vertices: (CC3Vector*) vertices
 					  andRetain: (BOOL) shouldRetainVertices;
-
-
-#pragma mark Populating for bitmapped font textures
-
-/**
- * Populates this instance as a rectangular mesh displaying the text of the specified string,
- * built from bitmap character images taken from a texture atlas as defined by the specified
- * bitmapped font configuration.
- *
- * The texture that matches the specified font configuration (and identified in the font configuration),
- * should be loaded and assigned to the texture property of the mesh node that uses this mesh.
- *
- * The text may be multi-line, and can be left-, center- or right-aligned, as specified.
- *
- * The specified lineHeight define the height of a line of text in the coordinate system of this
- * mesh. This parameter can be set to zero to use the natural line height of the font.
- *
- * For example, a font with font size of 16 might have a natural line height of 19. Setting the
- * lineHeight parameter to zero would result in a mesh where a line of text would be 19 units high.
- * On the other hand, setting this property to 0.2 will result in a mesh where the same line of text
- * has a height of 0.2 units. Depending on the size of other models in your scene, you may want to
- * set this lineHeight to something compatible. In addition, the visual size of the text will also
- * be affected by the value of the scale or uniformScale properties of any mesh node using this mesh.
- * Both the lineHeight and the node scale work to establish the visual size of the label text.
- *
- * For a more granular mesh, each character rectangle can be divided into many smaller divisions.
- * Building a rectanglular surface from more than one division can dramatically improve realism
- * when the surface is illuminated with specular lighting or a tightly focused spotlight, or if
- * the mesh is to be deformed in some way by a later process (such as wrapping the text texture
- * around some other shape).
- *
- * The divsPerChar argument indicates how to break each character rectangle into multiple faces.
- * The X & Y elements of the divsPerChar argument indicate how each axis if the rectangle for each
- * character should be divided into faces. The number of faces in the rectangle for each character
- * will therefore be the multiplicative product of the X & Y elements of the divsPerChar argument.
- *
- * For example, a value of {3,2} for the divsPerChar argument will result in each character being
- * divided into 6 smaller rectangular faces, arranged into a 3x2 grid.
- *
- * The relative origin defines the location of the origin for texture alignment, and is specified
- * as a fraction of the size of the overall label layout, starting from the bottom-left corner.
- *
- * For example, origin values of (0, 0), (0.5, 0.5), and (1, 1) indicate that the label mesh should
- * be aligned so that the bottom-left corner, center, or top-right corner, respectively, should be
- * located at the local origin of the corresponding mesh.
- *
- * The vertexContentType property of this mesh may be set prior to invoking this method, to define the
- * content type for each vertex. Content types kCC3VertexContentLocation, kCC3VertexContentNormal, and
- * kCC3VertexContentTextureCoordinate are populated by this method.
- *
- * If the vertexContentType property has not already been set, that property is set to a value of
- * (kCC3VertexContentLocation | kCC3VertexContentNormal | kCC3VertexContentTextureCoordinate), and
- * the mesh will be populated with location, normal and texture coordinates for each vertex.
- *
- * This method may be invoked repeatedly to change the label string. The mesh will automomatically
- * be rebuilt to the correct number of vertices required to display the currently specified string.
- */
--(void) populateAsBitmapFontLabelFromString: (NSString*) lblString
-									andFont: (CC3BMFontConfiguration*) fontConfig
-							  andLineHeight: (GLfloat) lineHeight
-						   andTextAlignment: (UITextAlignment) textAlignment
-						  andRelativeOrigin: (CGPoint) origin
-							andTessellation: (ccGridSize) divsPerChar;
 
 
 #pragma mark -

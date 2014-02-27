@@ -1,9 +1,9 @@
 /*
  * CC3MeshNode.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,7 +29,7 @@
 
 /** @file */	// Doxygen marker
 
-#import "CC3Node.h"
+#import "CC3LocalContentNode.h"
 #import "CC3Mesh.h"
 #import "CC3Material.h"
 
@@ -45,7 +45,7 @@
  * An instance can be the child of another node, and the mesh node itself can have child nodes.
  *
  * CC3MeshNodes encapsulate a CC3Mesh instance, and can also encapsulate either a CC3Material
- * instance, or a pure color. The CC3Mesh instance contains the mesh vertex data. The CC3Material
+ * instance, or a pure color. The CC3Mesh instance contains the mesh vertex content. The CC3Material
  * instance describes the material and texture properties covering the mesh, which are affected by
  * lighting conditions. Alternately, instead of a material, the mesh may be colored by a single
  * pure color via the pureColor property.
@@ -96,28 +96,31 @@
  * shouldCullFrontFaces property to YES.
  */
 @interface CC3MeshNode : CC3LocalContentNode {
-	CC3Mesh* mesh;
-	CC3Material* material;
-	ccColor4F pureColor;
-	GLenum depthFunction;
-	GLfloat decalOffsetFactor;
-	GLfloat decalOffsetUnits;
-	GLubyte normalScalingMethod;
-	GLfloat lineWidth;
-	GLenum lineSmoothingHint;
-	BOOL shouldSmoothLines : 1;
-	BOOL shouldDisableDepthMask : 1;
-	BOOL shouldDisableDepthTest : 1;
-	BOOL shouldCullFrontFaces : 1;
-	BOOL shouldCullBackFaces : 1;
-	BOOL shouldUseClockwiseFrontFaceWinding : 1;
-	BOOL shouldUseSmoothShading : 1;
-	BOOL shouldCastShadowsWhenInvisible : 1;
-	BOOL shouldApplyOpacityAndColorToMeshContent : 1;
+	CC3Mesh* _mesh;
+	CC3Material* _material;
+	CC3ShaderContext* _shaderContext;
+	ccColor4F _pureColor;
+	GLenum _depthFunction;
+	GLfloat _decalOffsetFactor;
+	GLfloat _decalOffsetUnits;
+	GLfloat _lineWidth;
+	GLenum _lineSmoothingHint;
+	CC3NormalScaling _normalScalingMethod : 4;
+	BOOL _shouldSmoothLines : 1;
+	BOOL _shouldDisableDepthMask : 1;
+	BOOL _shouldDisableDepthTest : 1;
+	BOOL _shouldCullFrontFaces : 1;
+	BOOL _shouldCullBackFaces : 1;
+	BOOL _shouldDrawInClipSpace : 1;
+	BOOL _shouldUseClockwiseFrontFaceWinding : 1;
+	BOOL _shouldUseSmoothShading : 1;
+	BOOL _shouldCastShadowsWhenInvisible : 1;
+	BOOL _shouldApplyOpacityAndColorToMeshContent : 1;
+	BOOL _hasRigidSkeleton : 1;		// Used by skinned mesh node subclasses
 }
 
 /**
- * The mesh that holds the vertex data for this mesh node.
+ * The mesh that holds the vertex content for this mesh node.
  *
  * When this property is set, if this node has a boundingVolume, it is forced to rebuild itself,
  * otherwise, if this node does not have a boundingVolume, a default bounding volume is created
@@ -125,10 +128,54 @@
  * of this node is set to NO, and if the mesh does not have texture coordinates, the texture
  * property of this node is set to nil.
  */
-@property(nonatomic, retain) CC3Mesh* mesh;
+@property(nonatomic, strong) CC3Mesh* mesh;
 
 /** @deprecated CC3MeshModel renamed to CC3Mesh. Use mesh property instead. */
-@property(nonatomic, retain) CC3Mesh* meshModel DEPRECATED_ATTRIBUTE;
+@property(nonatomic, strong) CC3Mesh* meshModel DEPRECATED_ATTRIBUTE;
+
+/**
+ * If a mesh does not yet exist, this method invokes the makeMesh method to create
+ * a suitable mesh, and sets it into the mesh property. Does nothing if this mesh
+ * node already has a mesh. Returns the mesh (existing or new).
+ *
+ * This method is invoked whenever a property is set that would affect the mesh.
+ * Usually, you will never need to invoke this method.
+ */
+-(CC3Mesh*) ensureMesh;
+
+/**
+ * This template method creates a suitable mesh for this mesh node.
+ *
+ * This implementation invokes [CC3Mesh mesh], and returns the result.
+ * Subclasses may override to provide a different mesh.
+ *
+ * This method is invoked automatically by the ensureMesh method if a mesh is needed,
+ * but has not yet been established. Usually, you will never need to invoke this method.
+ */
+-(CC3Mesh*) makeMesh;
+
+/**
+ * Returns whether the underlying vertex content has been loaded into GL engine vertex
+ * buffer objects. Vertex buffer objects are engaged via the createGLBuffers method.
+ */
+@property(nonatomic, readonly) BOOL isUsingGLBuffers;
+
+/**
+ * The normal scaling method that is currently in use for this mesh node.
+ *
+ * This property differs from the normalScalingMethod. The normalScalingMethod is a settable
+ * property that is used to indicate the desired scaling method to be used for normals, and
+ * can include a setting of kCC3NormalScalingAutomatic, to allow the mesh node to resolve
+ * which method to use. This property returns that resolved value.
+ *
+ * If the mesh has vertex normals, this property will match the normalScalingMethod for values
+ * kCC3NormalScalingNone, kCC3NormalScalingRescale & kCC3NormalScalingNormalize. If the mesh
+ * does not contain vertex normals, this property will always return kCC3NormalScalingNone.
+ */
+@property(nonatomic, readonly) CC3NormalScaling effectiveNormalScalingMethod;
+
+
+#pragma mark Materials
 
 /**
  * The material covering this mesh node.
@@ -141,7 +188,7 @@
  * The material will automatically be created if either the isOpaque or
  * shouldUseLighting property is set, but not if they are simply read.
  */
-@property(nonatomic, retain) CC3Material* material;
+@property(nonatomic, strong) CC3Material* material;
 
 /**
  * The pure, solid color used to paint the mesh if no material is established for this node.
@@ -154,27 +201,6 @@
  * or emissionColor) will create a material automatically.
  */
 @property(nonatomic, assign) ccColor4F pureColor;
-
-/**
- * Returns whether the underlying vertex data has been loaded into GL engine vertex
- * buffer objects. Vertex buffer objects are engaged via the createGLBuffers method.
- */
-@property(nonatomic, readonly) BOOL isUsingGLBuffers;
-
-/**
- * Returns an allocated, initialized, autorelease instance of the bounding volume to
- * be used by this node.
- *
- * This method is invoked automatically when the mesh property is set if no bounding
- * volume has been assigned.
- *
- * This implementation delegates to the mesh by invoking the same method on the mesh.
- * Subclasses will override to provide alternate default bounding volumes.
- */
--(CC3NodeBoundingVolume*) defaultBoundingVolume;
-
-
-#pragma mark Material coloring
 
 /**
  * If this value is set to YES, current lighting conditions will be taken into consideration
@@ -241,28 +267,151 @@
 @property(nonatomic, assign) ccColor4F emissionColor;
 
 /**
- * When this mesh node is textured with a DOT3 bump-map (normal map), this property
- * indicates the location, in the global coordinate system, of the light that is
- * illuminating the node.
+ * The shininess of the material of this mesh node.
  *
- * This global light location is tranformed from a loction in the global coordinate
- * system to a direction in the local coordinate system of this node. This local
- * direction is then applied to the texture of this node, where it interacts with
- * the normals stored in the bump-map texture to determine surface illumination.
- *
- * This property only needs to be set, and will only have effect when set, when one
- * of the textures of this node is configured as a bump-map. Set the value of this
- * property to the globalLocation of the light source. Bump-map textures may interact
- * with only one light source.
- *
- * When setting this property, this implementation also sets the same property in all
- * child nodes. When reading this property, this implementation returns a value if
- * this node contains a texture configured for bump-mapping, or the value of the same
- * property from the first descendant node that is a CC3MeshNode and that contains a
- * texture configured for bump-mapping. Otherwise, this implementation returns
- * kCC3VectorZero.
+ * The value of this property is clamped to between zero and kCC3MaximumMaterialShininess.
+ * The initial value of this property is kCC3DefaultMaterialShininess (zero).
  */
-@property(nonatomic, assign) CC3Vector globalLightLocation;
+@property(nonatomic, assign) GLfloat shininess;
+
+/**
+ * The reflectivity of the material of this mesh node.
+ *
+ * This property can be used when the material is covered by an environmental reflection cube-map
+ * texture to indicate the weighting that should be applied to the reflection texture, relative to
+ * any other textures on the material. A value of zero indicates that the surface should be
+ * completely unreflective, and a value of one indicates that the surface is entirely reflective.
+ *
+ * This property requires a programmable pipeline and has no effect when running OpenGL ES 1.1.
+ *
+ * The value of this property is clamped to between zero and one.
+ * The initial value of this property is kCC3DefaultMaterialReflectivity (zero).
+ */
+@property(nonatomic, assign) GLfloat reflectivity;
+
+/** 
+ * If a material does not yet exist, this method invokes the makeMaterial method to create
+ * a suitable material, and sets it into the material property. Does nothing if this mesh
+ * node already has a material. Returns the material (existing or new).
+ *
+ * This method is invoked whenever a property is set that would affect the material.
+ * Usually, you will never need to invoke this method.
+ */
+-(CC3Material*) ensureMaterial;
+
+/**
+ * This template method creates a suitable material for this mesh node.
+ *
+ * The new material's initial diffuse and ambient colors are modulated by the value of the
+ * pureColor property to propagate any color changes already made into the material. The
+ * initial value of pureColor is pure white, so if it has not been changed, the ambient and
+ * diffuse colors of the material will take on their default initial values.
+ * Subclasses may override to provide a different material.
+ *
+ * This method is invoked automatically by the ensureMaterial method if a material is needed,
+ * but has not yet been established. Usually, you will never need to invoke this method.
+ */
+-(CC3Material*) makeMaterial;
+
+
+#pragma mark Shaders
+
+/**
+ * The GLSL shader program context containing the GLSL program (vertex & fragment shaders) 
+ * used to draw this node.
+ *
+ * A single CC3ShaderProgram object can be used by many nodes. The CC3ShaderContext
+ * instance in this property contains state and behaviour specific to the use of the shader
+ * program by this mesh node.
+ *
+ * Each shader program typically makes use of many uniform variables. In most, or many, cases,
+ * each uniform will have a semantic defined, and the content of the uniform will automatically
+ * be extracted from the environment, including from this mesh node itself. So, in most cases,
+ * once the semantic is defined, the application needs pay no further attention to the uniform.
+ *
+ * The shader context can be used to modify this standard semanitic-driven behaviour in two
+ * ways. This shader context can be used to assign a value to a specialized or custom shader
+ * uniform whose value is not derived semantically from the node or the environment, and it 
+ * can be used to override the value of an otherwise semantically-derived uniform, if needed.
+ *
+ * If this property is not set directly, it is automatically initialized to a new shader 
+ * context instance on first access (typically when the shaderProgram property is established,
+ * or a uniform override is added). Unless you have a need to set the value of this property
+ * directly, you can simply let it be managed automatically.
+ *
+ * This property is used only when running under OpenGL ES 2.
+ */
+@property(nonatomic, strong) CC3ShaderContext* shaderContext;
+
+/**
+ * The GLSL program (vertex & fragment shaders) used to draw this node.
+ *
+ * The program is held in the shader context in the shaderContext property. This is a 
+ * convenience property that allows the shader program to be accessed from the shaderContext.
+ *
+ * Setting the value of this property will set the specified program into the context in the
+ * shaderContext property, creating a new shader context if necessary.
+ *
+ * As an alternative to setting this property directly, you can either access this property,
+ * or invoke the selectShaderProgram method (or let it be invoked automatically during the 
+ * first draw), to have an appropriate shader program automatically selected for use by this
+ * node, and assigned to this property,
+ *
+ * This property is used only when running under OpenGL ES 2.
+ */
+@property(nonatomic, strong) CC3ShaderProgram* shaderProgram;
+
+/**
+ * Selects an appropriate shader program for this mesh node, and returns that shader program.
+ *
+ * When running under a programmable rendering pipeline, such as OpenGL ES 2.0 or OpenGL, all
+ * mesh nodes require shaders to be assigned. This can be done directly using the shaderProgram
+ * property. Or a shader program can be selected automatically based on the characteristics of
+ * the mesh node by invoking this method.
+ *
+ * Since all mesh nodes require shaders, if this method is not invoked, and a shader program 
+ * was not manually assigned via the shaderProgram property, a shaders will be automatically 
+ * assigned to each mesh node the first time it is rendered. The automatic selection is the 
+ * same, whether this method is invoked, or the selection is made lazily. However, if the 
+ * shaders must be loaded and compiled, there can be a noticable pause in drawing a mesh node
+ * for the first time if lazy assignment is used.
+ *
+ * Shader selection is driven by the characteristics of the mesh node and its material,
+ * including the number of textures, whether alpha testing is used, etc. If you change
+ * any of these characteristics that affect the shader selection, you can invoke the
+ * removeLocalShaders method to cause a different shader program to be selected, based
+ * on the new mesh node and material characteristics.
+ *
+ * Shader selection is handled by an implementation of the CC3ShaderMatcher held in the
+ * CC3ShaderProgram shaderMatcher class-side property. The application can therefore 
+ * customize shader program selection by establishing a custom instance in the 
+ * CC3ShaderProgram shaderMatcher class-side property
+ *
+ * This method differs from the selectShaders method in that this method does not
+ * propagate to any descendant nodes.
+ */
+-(CC3ShaderProgram*) selectShaderProgram;
+
+/**
+ * Removes the shaders from this mesh node, allowing new shaders to be selected, either directly
+ * by subsequently invoking the selectShaderProgram method, or automatically the next time this
+ * mesh node is drawn.
+ *
+ * Shader selection is driven by the characteristics of the mesh node and its material,
+ * including the number of textures, whether alpha testing is used, etc. If you change
+ * any of these characteristics that affect the shader selection, you can invoke the
+ * removeLocalShaders method to cause a different shader program to be selected, based
+ * on the new mesh node and material characteristics.
+ *
+ * This method is equivalent to setting the shaderProgram property to nil.
+ *
+ * This method differs from the removeShaders method in that this method does not
+ * propagate to any descendant nodes.
+ */
+-(void) removeLocalShaders;
+
+/** @deprecated Renamed to removeLocalShaders. */
+-(void) clearShaderProgram DEPRECATED_ATTRIBUTE;
 
 
 #pragma mark CCRGBAProtocol and CCBlendProtocol support
@@ -388,8 +537,17 @@
  * To compensate, when a texture is attached to a mesh node, the texture coordinates
  * of the mesh are automatically adjusted to correctly display the texture, taking
  * into consideration POT padding and vertical orientation.
+ *
+ * When building for iOS, raw PNG and TGA images are pre-processed by Xcode to pre-multiply
+ * alpha, and to reorder the pixel component byte order, to optimize the image for the iOS
+ * platform. If you want to avoid this pre-processing for PNG or TGA files, for textures
+ * such as normal maps or lighting maps, that you don't want to be modified, you can prepend
+ * a 'p' to the file extension ("ppng" or "ptga") to cause Xcode to skip this pre-processing
+ * and to use a loader that does not pre-multiply the alpha. You can also use this for other
+ * file types as well. See the notes for the CC3STBImage useForFileExtensions class-side
+ * property for more info.
  */
-@property(nonatomic, retain) CC3Texture* texture;
+@property(nonatomic, strong) CC3Texture* texture;
 
 /**
  * In most situations, the material will use a single CC3Texture in the texture property.
@@ -411,12 +569,12 @@
  * by GL texture unit zero. Subsequent textures added with this method will be processed
  * by subsequent texture units, in the order they were added.
  *
- * The maximum number of texture units available is platform dependent, but will
- * be at least two. The maximum number of texture units available can be read from
- * [CC3OpenGLES11Engine engine].platform.maxTextureUnits.value. If you attempt to
- * add more than this number of textures to the material, the additional textures
- * will be ignored, and an informational message to that fact will be logged.
- * 
+ * The maximum number of texture units available is platform dependent, but will be
+ * at least two. The maximum number of texture units available can be read from the
+ * CC3OpenGL.sharedGL.maxNumberOfTextureUnits property. If you attempt to add more than
+ * this number of textures to the material, the additional textures will be ignored,
+ * and an informational message to that fact will be logged.
+ *
  * Under iOS, during loading, textures are padded to dimensions of a power-of-two
  * (POT) and, because vertical OpenGL coordinates are inverted relative to iOS
  * view coordinates, most texture formats are loaded updside-down.
@@ -424,6 +582,15 @@
  * To compensate, when a texture is attached to a mesh node, the texture coordinates
  * of the mesh are automatically adjusted to correctly display the texture, taking
  * into consideration POT padding and vertical orientation.
+ *
+ * When building for iOS, raw PNG and TGA images are pre-processed by Xcode to pre-multiply
+ * alpha, and to reorder the pixel component byte order, to optimize the image for the iOS
+ * platform. If you want to avoid this pre-processing for PNG or TGA files, for textures
+ * such as normal maps or lighting maps, that you don't want to be modified, you can prepend
+ * a 'p' to the file extension ("ppng" or "ptga") to cause Xcode to skip this pre-processing
+ * and to use a loader that does not pre-multiply the alpha. You can also use this for other
+ * file types as well. See the notes for the CC3STBImage useForFileExtensions class-side
+ * property for more info.
  */
 -(void) addTexture: (CC3Texture*) aTexture;
 
@@ -471,17 +638,18 @@
  * Indicates whether the texture coordinates of this mesh expects that the texture
  * was flipped upside-down during texture loading.
  * 
- * The vertical axis of the coordinate system of OpenGL is inverted relative to
- * the iOS view coordinate system. This results in textures from most file formats
- * being oriented upside-down, relative to the OpenGL coordinate system. All file
- * formats except PVR format will be oriented upside-down after loading.
+ * The vertical axis of the coordinate system of OpenGL is inverted relative to the
+ * CoreGraphics view coordinate system. As a result, some texture file formats may be
+ * loaded upside down. Most common file formats, including JPG, PNG & PVR are loaded
+ * right-way up, but using proprietary texture formats developed for other platforms
+ * may result in textures being loaded upside-down.
  *
  * The value of this property is used in combination with the value of the 
- * isFlippedVertically property of a texture to determine whether the texture
+ * isUpsideDown property of a texture to determine whether the texture
  * will be oriented correctly when displayed using these texture coordinates.
  *
  * When a texture or material is assigned to this mesh node, the value of this
- * property is compared with the isFlippedVertically property of the texture to
+ * property is compared with the isUpsideDown property of the texture to
  * automatically determine whether these texture coordinates need to be flipped
  * vertically in order to display the texture correctly. If needed, the texture
  * coordinates will be flipped automatically. As part of that inversion, the
@@ -504,7 +672,7 @@
  * any texture unit, otherwise this property will return NO.
  * 
  * The initial value of this property is set when the underlying mesh texture
- * coordinates are built or loaded. See the same property on the CC3Resource
+ * coordinates are built or loaded. See the same property on the CC3NodesResource
  * class to understand how this property is set during mesh resource loading.
  * 
  * When building meshes programmatically, you should endeavour to design the
@@ -525,11 +693,11 @@
  * formats except PVR format will be oriented upside-down after loading.
  *
  * The value of this property is used in combination with the value of the 
- * isFlippedVertically property of a texture to determine whether the texture
+ * isUpsideDown property of a texture to determine whether the texture
  * will be oriented correctly when displayed using these texture coordinates.
  *
  * When a texture or material is assigned to this mesh node, the value of this
- * property is compared with the isFlippedVertically property of the texture to
+ * property is compared with the isUpsideDown property of the texture to
  * automatically determine whether these texture coordinates need to be flipped
  * vertically in order to display the texture correctly, and if needed, the
  * texture coordinates will be flipped automatically. As part of that inversion,
@@ -541,7 +709,7 @@
  * 
  * The initial value of this property is set when the underlying mesh texture
  * coordinates are built or loaded. See the expectsVerticallyFlippedTextures
- * property on the CC3Resource class to understand how this property is set
+ * property on the CC3NodesResource class to understand how this property is set
  * during mesh resource loading from model files.
  * 
  * When building meshes programmatically, you should endeavour to design the
@@ -717,15 +885,36 @@
 -(void) setTextureRectangle: (CGRect) aRect forTextureUnit: (GLuint) texUnit;
 
 /**
- * Indicates whether the RGB components of each pixel of the encapsulated textures
- * have had the corresponding alpha component applied already.
+ * Returns whether this mesh is being drawn as point sprites.
+ *
+ * This property returns YES if this mesh node has a texture and the drawingMode property
+ * is set to GL_POINTS, otherwise this property returns NO.
+ */
+@property(nonatomic, readonly) BOOL isDrawingPointSprites;
+
+/**
+ * Returns whether any of the textures used by this material have an alpha channel, representing opacity.
+ *
+ * Returns YES if any of the textures contained in this instance has an alpha channel.
+ *
+ * See also the notes of the shouldBlendAtFullOpacity property for the effects of using a
+ * texture with an alpha channel.
+ */
+@property(nonatomic, readonly) BOOL hasTextureAlpha;
+
+/**
+ * Returns whether the alpha channel has already been multiplied into each of the RGB
+ * color channels, in any of the textures used by this material.
  *
  * Returns YES if any of the textures contained in this instance has pre-mulitiplied alpha.
- * 
+ *
  * See also the notes of the shouldApplyOpacityToColor property for the effects of using textures
  * with pre-multiplied alpha.
  */
-@property(nonatomic, readonly) BOOL hasPremultipliedAlpha;
+@property(nonatomic, readonly) BOOL hasTexturePremultipliedAlpha;
+
+/** @deprecated Renamed to hasTexturePremultipliedAlpha. */
+@property(nonatomic, readonly) BOOL hasPremultipliedAlpha DEPRECATED_ATTRIBUTE;
 
 /**
  * Returns whether the opacity of each of the material colors (ambient, diffuse, specular and emission)
@@ -743,30 +932,6 @@
 @property(nonatomic, readonly) BOOL shouldApplyOpacityToColor;
 
 
-#pragma mark Drawing
-
-/**
- * The drawing mode indicating how the vertices are connected (points, lines,
- * triangles...).
- *
- * This must be set with a valid GL drawing mode enumeration.
- * The default value is GL_TRIANGLES.
- */
-@property(nonatomic, assign) GLenum drawingMode;
-
-/**
- * Draws the local content of this mesh node by following these steps:
- *   -# If the shouldDecorateNode property of the visitor is YES, and this node
- *      has a material, invokes the drawWithVisitor method of the material.
- *      Otherwise, invokes the CC3Material class-side unbind method.
- *   -# Invokes the drawWithVisitor: method of the encapsulated mesh.
- *
- * This method is called automatically from the transformAndDrawWithVisitor: method
- * of this node. Usually, the application never needs to invoke this method directly.
- */
--(void) drawWithVisitor: (CC3NodeDrawingVisitor*) visitor;
-
-
 #pragma mark Vertex management
 
 /**
@@ -780,47 +945,75 @@
  * Valid component flags of this property include:
  *   - kCC3VertexContentLocation
  *   - kCC3VertexContentNormal
+ *   - kCC3VertexContentTangent
+ *   - kCC3VertexContentBitangent
  *   - kCC3VertexContentColor
  *   - kCC3VertexContentTextureCoordinates
+ *   - kCC3VertexContentBoneWeights
+ *   - kCC3VertexContentBoneIndices
  *   - kCC3VertexContentPointSize
- *   - kCC3VertexContentWeights
- *   - kCC3VertexContentMatrixIndices
  *
  * To indicate that this mesh should contain particular vertex content, construct a
  * bitwise-OR combination of one or more of the component types listed above, and set
  * this property to that combined value.
  *
- * Setting this property affects the underlying mesh. When this property is set, if a mesh has
- * not yet been set in the mesh property of this node, a new CC3VertexArrayMesh, set to interleave
- * vertex data, will automatically be created and set into the mesh property of this node.
+ * Setting this property affects the underlying mesh. When this property is set, if a mesh
+ * has not yet been set in the mesh property of this node, a new CC3Mesh, set to interleave
+ * vertex content, will automatically be created and set into the mesh property of this node.
  *
  * When setting this property, if the kCC3VertexContentTextureCoordinates component is not
  * included, the texture property will be set to nil. If the kCC3VertexContentNormal component
  * is not included, the shouldUseLighting property will be set to NO automatically.
  *
  * This property is a convenience property. You can also construct the mesh by managing the
- * content directly within the underlying mesh. The effect that this property has on the internal
- * structure of the underlying mesh depends on the subclass of that mesh. In particular, see the
- * notes for this propety on the CC3VertexArrayMesh, CC3PointParticleMesh, and CC3SkinMesh classes
- * for more details, and specific use cases with those mesh subclasses.
+ * vertex content directly by assigning specific vertex arrays to the appropriate properties
+ * on the underlying mesh.
  *
- * Not all meshes can contain all of the vertex content itemized above. In general, all
- * meshes can contain the first four vertex content types. Specialized mesh subclasses
- * can contain other combinations as follows:
- *   - kCC3VertexContentPointSize is accepted by CC3PointParticleEmitter in support of point particles.
- *   - kCC3VertexContentWeights and kCC3VertexContentMatrixIndices are accepted by CC3SkinMeshNode
- *     in support of skinned meshes controlled by bone-rigging.
+ * The mesh constructed by this property will be configured to use interleaved data if the
+ * shouldInterleaveVertices property of the mesh is set to YES. You should ensure the value
+ * of the shouldInterleaveVertices property of the underlying mesh is set to the desired value
+ * before setting the value of this property. The initial value of the shouldInterleaveVertices
+ * property is YES.
  *
- * Meshes that do not support a particular vertex component type will silently ignore that
- * component of this property.
- * 
- * When reading this property, if no content has been defined for this mesh, this property
- * will return kCC3VertexContentNone.
+ * If the content is interleaved, for each vertex, the content is held in the structures identified in
+ * the list above, in the order that they appear in the list. You can use this consistent organization
+ * to create an enclosing structure to access all data for a single vertex, if it makes it easier to
+ * access vertex content that way. If vertex content is not specified, it is simply absent, and the content
+ * from the following type will be concatenated directly to the content from the previous type.
+ *
+ * For instance, in a typical textured and illuminated mesh, you might not require per-vertex
+ * color, tangent and bitangent content. You would therefore omit the kCC3VertexContentColor,
+ * kCC3VertexContentTangent and kCC3VertexContentBitangent values in the bitmask when setting
+ * this property, and the resulting structure for each vertex would be a location CC3Vector,
+ * followed by a normal CC3Vector, followed immediately by a texture coordinate ccTex2F.
+ * You can then define an enclosing structure to hold and manage all content for a single vertex.
+ * In this particular example, this is already done for you with the CC3TexturedVertex structure.
+ *
+ * You can declare and use such a custom vertex structure even if you have constructed the vertex
+ * arrays directly, without using this property. The structure of the content of a single vertex
+ * is the same in either case.
+ *
+ * The vertex arrays created in the underlying mesh by this property cover the most common use
+ * cases and data formats. If you require more customized vertex arrays, you can use this property
+ * to create the typical mesh content, and then customize the mesh, by accessing the vertex arrays
+ * individually through their respective properties on the mesh. After doing so, if the vertex
+ * content is interleaved, you should invoke the updateVertexStride method on the mesh to
+ * automatically align the elementOffset and vertexStride properties of all of the vertex arrays.
+ * After setting this property, you do not need to invoke the updateVertexStride method unless
+ * you subsequently make changes to the constructed vertex arrays.
+ *
+ * It is safe to set this property more than once. Doing so will remove any existing vertex arrays
+ * and replace them with those indicated by this property.
+ *
+ * When reading this property, the appropriate bitwise-OR values are returned, corresponding to
+ * the mesh vertex arrays, even if those arrays were constructed directly, instead of through
+ * setting this property. If this mesh contains no vertex arrays, this property will return
+ * kCC3VertexContentNone.
  */
 @property(nonatomic, assign) CC3VertexContent vertexContentTypes;
 
 
-#pragma mark Accessing vertex data
+#pragma mark Accessing vertex content
 
 /**
  * Changes the mesh vertices so that the origin of the mesh is at the specified location.
@@ -842,7 +1035,7 @@
  * This method automatically invokes the markBoundingVolumeDirty method, to ensure that the
  * boundingVolume encompasses the new vertex locations.
  *
- * This method also ensures that the GL VBO that holds the vertex data is updated.
+ * This method also ensures that the GL VBO that holds the vertex content is updated.
  */
 -(void) moveMeshOriginTo: (CC3Vector) aLocation;
 
@@ -866,7 +1059,7 @@
  * This method automatically invokes the markBoundingVolumeDirty method, to ensure that the
  * boundingVolume encompasses the new vertex locations.
  *
- * This method also ensures that the GL VBO that holds the vertex data is updated.
+ * This method also ensures that the GL VBO that holds the vertex content is updated.
  */
 -(void) moveMeshOriginToCenterOfGeometry;
 
@@ -892,11 +1085,10 @@
 @property(nonatomic, assign) GLuint vertexCount;
 
 /**
- * If indexed drawing is used by this mesh, indicates the number of vertex
- * indices in the mesh.
+ * If indexed drawing is used by this mesh, indicates the number of vertex indices in the mesh.
  *
- * If indexed drawing is not used by this mesh, this property has no effect,
- * and reading it will return zero.
+ * If indexed drawing is not used by this mesh, this property has no effect, and reading it
+ * will return zero.
  *
  * Usually, you should treat this property as read-only. However, there may be
  * occasions with meshes that contain dynamic content, such as particle systems,
@@ -911,65 +1103,65 @@
 @property(nonatomic, assign) GLuint vertexIndexCount;
 
 /**
- * Returns the location element at the specified index from the vertex data.
+ * Returns the location element at the specified index from the vertex content.
  *
  * The index refers to vertices, not bytes. The implementation takes into consideration
- * whether the vertex data is interleaved to access the correct vertex data component.
+ * whether the vertex content is interleaved to access the correct vertex content component.
  *
  * This implementation takes into consideration the dimensionality of the underlying
- * vertex data. If the dimensionality is 2, the returned vector will contain zero in
+ * vertex content. If the dimensionality is 2, the returned vector will contain zero in
  * the Z component.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(CC3Vector) vertexLocationAt: (GLuint) index;
 
 /**
- * Sets the location element at the specified index in the vertex data to the specified value.
+ * Sets the location element at the specified index in the vertex content to the specified value.
  * 
  * The index refers to vertices, not bytes. The implementation takes into consideration
- * whether the vertex data is interleaved to access the correct vertex data component.
+ * whether the vertex content is interleaved to access the correct vertex content component.
  *
  * This implementation takes into consideration the dimensionality of the underlying
- * vertex data. If the dimensionality is 2, the Z component of the specified vector
+ * vertex content. If the dimensionality is 2, the Z component of the specified vector
  * will be ignored. If the dimensionality is 4, the specified vector will be converted
  * to a 4D vector, with the W component set to one, before storing.
  *
  * When all vertex changes have been made, be sure to invoke the updateVertexLocationsGLBuffer
- * method to ensure that the GL VBO that holds the vertex data is updated.
+ * method to ensure that the GL VBO that holds the vertex content is updated.
  * 
  * This method automatically invokes the markBoundingVolumeDirty method, to ensure that the
  * boundingVolume encompasses the new vertex locations.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setVertexLocation: (CC3Vector) aLocation at: (GLuint) index;
 
 /**
- * Returns the location element at the specified index in the underlying vertex data,
+ * Returns the location element at the specified index in the underlying vertex content,
  * as a four-dimensional location in the 4D homogeneous coordinate space.
  *
  * The index refers to vertices, not bytes. The implementation takes into consideration
- * whether the vertex data is interleaved to access the correct vertex data component.
+ * whether the vertex content is interleaved to access the correct vertex content component.
  *
  * This implementation takes into consideration the elementSize property. If the
  * value of the elementSize property is 3, the returned vector will contain one
  * in the W component. If the value of the elementSize property is 2, the returned
  * vector will contain zero in the Z component and one in the W component.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(CC3Vector4) vertexHomogeneousLocationAt: (GLuint) index;
 
 /**
- * Sets the location element at the specified index in the underlying vertex data to
+ * Sets the location element at the specified index in the underlying vertex content to
  * the specified four-dimensional location in the 4D homogeneous coordinate space.
  * 
  * The index refers to vertices, not bytes. The implementation takes into consideration
- * whether the vertex data is interleaved to access the correct vertex data component.
+ * whether the vertex content is interleaved to access the correct vertex content component.
  *
  * This implementation takes into consideration the dimensionality of the underlying
  * data. If the dimensionality is 3, the W component of the specified vector will be
@@ -977,41 +1169,93 @@
  * vector will be ignored.
  * 
  * When all vertex changes have been made, be sure to invoke the updateVertexLocationsGLBuffer
- * method to ensure that the GL VBO that holds the vertex data is updated.
+ * method to ensure that the GL VBO that holds the vertex content is updated.
  * 
  * This method automatically invokes the markBoundingVolumeDirty method, to ensure that the
  * boundingVolume encompasses the new vertex locations.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setVertexHomogeneousLocation: (CC3Vector4) aLocation at: (GLuint) index;
 
 /**
- * Returns the normal element at the specified index from the vertex data.
+ * Returns the normal element at the specified index from the vertex content.
  *
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(CC3Vector) vertexNormalAt: (GLuint) index;
 
 /**
- * Sets the normal element at the specified index in the vertex data to the specified value.
+ * Sets the normal element at the specified index in the vertex content to the specified value.
  * 
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
  * When all vertex changes have been made, be sure to invoke the
  * updateVertexNormalsGLBuffer method to ensure that the GL VBO
- * that holds the vertex data is updated.
+ * that holds the vertex content is updated.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setVertexNormal: (CC3Vector) aNormal at: (GLuint) index;
+
+/**
+ * Returns the tangent element at the specified index from the vertex content.
+ *
+ * The index refers to vertices, not bytes. The implementation takes into consideration
+ * the vertexStride and elementOffset properties to access the correct element.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(CC3Vector) vertexTangentAt: (GLuint) index;
+
+/**
+ * Sets the tangent element at the specified index in the vertex content to the specified value.
+ *
+ * The index refers to vertices, not bytes. The implementation takes into consideration
+ * the vertexStride and elementOffset properties to access the correct element.
+ *
+ * When all vertex changes have been made, be sure to invoke the
+ * updateVertexNormalsGLBuffer method to ensure that the GL VBO
+ * that holds the vertex content is updated.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(void) setVertexTangent: (CC3Vector) aTangent at: (GLuint) index;
+
+/**
+ * Returns the tangent element at the specified index from the vertex content.
+ *
+ * The index refers to vertices, not bytes. The implementation takes into consideration
+ * the vertexStride and elementOffset properties to access the correct element.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(CC3Vector) vertexBitangentAt: (GLuint) index;
+
+/**
+ * Sets the bitangent element at the specified index in the vertex content to the specified value.
+ *
+ * The index refers to vertices, not bytes. The implementation takes into consideration
+ * the vertexStride and elementOffset properties to access the correct element.
+ *
+ * When all vertex changes have been made, be sure to invoke the
+ * updateVertexNormalsGLBuffer method to ensure that the GL VBO
+ * that holds the vertex content is updated.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(void) setVertexBitangent: (CC3Vector) aTangent at: (GLuint) index;
 
 /**
  * Returns the symbolic content type of the vertex color, which indicates the range of values
@@ -1026,18 +1270,18 @@
 @property(nonatomic, readonly) GLenum vertexColorType;
 
 /**
- * Returns the color element at the specified index from the vertex data.
+ * Returns the color element at the specified index from the vertex content.
  *
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(ccColor4F) vertexColor4FAt: (GLuint) index;
 
 /**
- * Sets the color element at the specified index in the vertex data to the specified value.
+ * Sets the color element at the specified index in the vertex content to the specified value.
  * 
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
@@ -1051,26 +1295,26 @@
  * property for more on using pre-multiplied alpha.
  *
  * When all vertex changes have been made, be sure to invoke the updateVertexColorsGLBuffer
- * method to ensure that the GL VBO that holds the vertex data is updated.
+ * method to ensure that the GL VBO that holds the vertex content is updated.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setVertexColor4F: (ccColor4F) aColor at: (GLuint) index;
 
 /**
- * Returns the color element at the specified index from the vertex data.
+ * Returns the color element at the specified index from the vertex content.
  *
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(ccColor4B) vertexColor4BAt: (GLuint) index;
 
 /**
- * Sets the color element at the specified index in the vertex data to the specified value.
+ * Sets the color element at the specified index in the vertex content to the specified value.
  * 
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
@@ -1084,27 +1328,205 @@
  * property for more on using pre-multiplied alpha.
  *
  * When all vertex changes have been made, be sure to invoke the updateVertexColorsGLBuffer
- * method to ensure that the GL VBO that holds the vertex data is updated.
+ * method to ensure that the GL VBO that holds the vertex content is updated.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setVertexColor4B: (ccColor4B) aColor at: (GLuint) index;
 
 /**
- * Returns the texture coordinate element at the specified index from the vertex data
+ * Returns the number of bones that influence each vertex in this mesh. This value defines
+ * the number of bone weights and bone indices that are attached to each vertex.
+ */
+@property(nonatomic, readonly) GLuint vertexBoneCount;
+
+/**
+ * Returns the weight value, for the specified influence index within the vertex, for the
+ * vertex at the specified index within the underlying vertex content.
+ *
+ * The weight indicates how much a particular bone influences the movement of the particular
+ * vertex. Several weights are stored for each vertex, one for each bone that influences the
+ * movement of that vertex. The specified influenceIndex parameter must be between zero, and
+ * the vertexBoneCount property (inclusive/exclusive respectively).
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * whether the vertex content is interleaved to access the correct vertex content component.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(GLfloat) vertexWeightForBoneInfluence: (GLuint) influenceIndex at: (GLuint) vtxIndex;
+
+/**
+ * Sets the weight value, for the specified influence index within the vertex, for the
+ * vertex at the specified index within the underlying vertex content.
+ *
+ * The weight indicates how much a particular bone influences the movement of the particular
+ * vertex. Several weights are stored for each vertex, one for each bone that influences the
+ * movement of that vertex. The specified influenceIndex parameter must be between zero, and
+ * the vertexBoneCount property (inclusive/exclusive respectively).
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * whether the vertex content is interleaved to access the correct vertex content component.
+ *
+ * When all vertex changes have been made, be sure to invoke the updateVertexBoneWeightsGLBuffer
+ * method to ensure that the GL VBO that holds the vertex content is updated.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(void) setVertexWeight: (GLfloat) weight forBoneInfluence: (GLuint) influenceIndex at: (GLuint) vtxIndex;
+
+/**
+ * Returns the weights of all of the bones that influence the movement of the vertex at the
+ * specified index within the underlying vertex content.
+ *
+ * Several weights are stored for each vertex, one for each bone that influences the movement
+ * of the vertex. The number of elements in the returned array is the same for each vertex
+ * in this vertex array, as defined by the vertexBoneCount property.
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * whether the vertex content is interleaved to access the correct vertex content component.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(GLfloat*) vertexBoneWeightsAt: (GLuint) vtxIndex;
+
+/**
+ * Sets the weights of all of the bones that influence the movement of the vertex at the
+ * specified index within the underlying vertex content.
+ *
+ * Several weights are stored for each vertex, one for each bone that influences the movement
+ * of the vertex. The number of elements in the specified input array must therefore be at
+ * least as large as the value of the vertexBoneCount property.
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * whether the vertex content is interleaved to access the correct vertex content component.
+ *
+ * When all vertex changes have been made, be sure to invoke the updateVertexBoneWeightsGLBuffer
+ * method to ensure that the GL VBO that holds the vertex content is updated.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(void) setVertexBoneWeights: (GLfloat*) weights at: (GLuint) vtxIndex;
+
+/**
+ * Returns the index of the bone, that provides the influence at the specified influence index
+ * within a vertex, for the vertex at the specified index within the underlying vertex content.
+ *
+ * The bone index indicates which bone provides the particular influence for the movement of
+ * the particular vertex. Several bone indices are stored for each vertex, one for each bone
+ * that influences the movement of that vertex. The specified influenceIndex parameter must
+ * be between zero, and the vertexBoneCount property (inclusive/exclusive respectively).
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * whether the vertex content is interleaved to access the correct vertex content component.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(GLuint) vertexBoneIndexForBoneInfluence: (GLuint) influenceIndex at: (GLuint) vtxIndex;
+
+/**
+ * Sets the index of the bone, that provides the influence at the specified influence index
+ * within a vertex, for the vertex at the specified index within the underlying vertex content.
+ *
+ * The bone index indicates which bone provides the particular influence for the movement of
+ * the particular vertex. Several bone indices are stored for each vertex, one for each bone
+ * that influences the movement of that vertex. The specified influenceIndex parameter must
+ * be between zero, and the vertexBoneCount property (inclusive/exclusive respectively).
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * whether the vertex content is interleaved to access the correct vertex content component.
+ *
+ * When all vertex changes have been made, be sure to invoke the updateVertexBoneIndicesGLBuffer
+ * method to ensure that the GL VBO that holds the vertex content is updated.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(void) setVertexBoneIndex: (GLuint) boneIndex forBoneInfluence: (GLuint) influenceIndex at: (GLuint) vtxIndex;
+
+/**
+ * Returns the indices of all of the bones that influence the movement of the vertex at the
+ * specified index within the underlying vertex content.
+ *
+ * Several indices are stored for each vertex, one for each bone that influences the movement
+ * of the vertex. The number of elements in the returned array is the same for each vertex
+ * in this vertex array, as defined by the vertexBoneCount property.
+ *
+ * The bone indices can be stored in each vertex as either type GLushort or type GLubyte.
+ * The returned array will be of the type of index stored by the verties in this mesh, and it
+ * is up to the application to know which type will be returned, and cast the returned array
+ * accordingly. The type can be determined by the vertexBoneIndexType property of this mesh,
+ * which will return one of GL_UNSIGNED_SHORT or GL_UNSIGNED_BYTE, respectively.
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * whether the vertex content is interleaved to access the correct vertex content component.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(GLvoid*) vertexBoneIndicesAt: (GLuint) vtxIndex;
+
+/**
+ * Sets the indices of all of the bones that influence the movement of the vertex at the
+ * specified index within the underlying vertex content.
+ *
+ * Several indices are stored for each vertex, one for each bone that influences the movement
+ * of the vertex. The number of elements in the specified input array must therefore be at
+ * least as large as the value of the vertexBoneCount property.
+ *
+ * The bone indices can be stored in each vertx as either type GLushort or type GLubyte.
+ * The specified array must be of the type of index stored by the verties in this mesh, and
+ * it is up to the application to know which type is required, and provide that type of array
+ * accordingly. The type can be determined by the vertexBoneIndexType property of this mesh,
+ * which will return one of GL_UNSIGNED_SHORT or GL_UNSIGNED_BYTE, respectively.
+ *
+ * To avoid checking the elementType altogether, you can use the setVertxBoneIndex:forBoneInfluence:at:
+ * method, which sets the bone index values one at a time, and automatically converts the input type to
+ * the correct stored type.
+ *
+ * The vertex index refers to vertices, not bytes. The implementation takes into consideration
+ * whether the vertex content is interleaved to access the correct vertex content component.
+ *
+ * When all vertex changes have been made, be sure to invoke the updateVertexBoneIndicesGLBuffer
+ * method to ensure that the GL VBO that holds the vertex content is updated.
+ *
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
+ */
+-(void) setVertexBoneIndices: (GLvoid*) boneIndices at: (GLuint) vtxIndex;
+
+/**
+ * Returns the type of data element used to store each bone index.
+ *
+ * The value returned by this property will be either GL_UNSIGNED_SHORT or GL_UNSIGNED_BYTE,
+ * corresponding to each bone index being stored in either a type GLushort or type GLubyte,
+ * respectively.
+ *
+ * You can use the value of this property to determine how to cast the data arrays used by
+ * the vertexBoneIndicesAt: and setVertexBoneIndices:at: methods.
+ */
+@property(nonatomic, readonly) GLenum vertexBoneIndexType;
+
+/**
+ * Returns the texture coordinate element at the specified index from the vertex content
  * at the specified texture unit index.
  *
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(ccTex2F) vertexTexCoord2FForTextureUnit: (GLuint) texUnit at: (GLuint) index;
 
 /**
- * Sets the texture coordinate element at the specified index in the vertex data,
+ * Sets the texture coordinate element at the specified index in the vertex content,
  * at the specified texture unit index, to the specified texture coordinate value.
  * 
  * The index refers to vertices, not bytes. The implementation takes into consideration
@@ -1112,15 +1534,15 @@
  *
  * When all vertex changes have been made, be sure to invoke the
  * updateVertexTextureCoordinatesGLBufferForTextureUnit: method
- * to ensure that the GL VBO that holds the vertex data is updated.
+ * to ensure that the GL VBO that holds the vertex content is updated.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setVertexTexCoord2F: (ccTex2F) aTex2F forTextureUnit: (GLuint) texUnit at: (GLuint) index;
 
 /**
- * Returns the texture coordinate element at the specified index from the vertex data
+ * Returns the texture coordinate element at the specified index from the vertex content
  * at the commonly used texture unit zero.
  *
  * This is a convenience method that is equivalent to invoking the
@@ -1129,13 +1551,13 @@
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(ccTex2F) vertexTexCoord2FAt: (GLuint) index;
 
 /**
- * Sets the texture coordinate element at the specified index in the vertex data,
+ * Sets the texture coordinate element at the specified index in the vertex content,
  * at the commonly used texture unit zero, to the specified texture coordinate value.
  *
  * This is a convenience method that delegates to the setVertexTexCoord2F:forTextureUnit:at:
@@ -1146,10 +1568,10 @@
  *
  * When all vertex changes have been made, be sure to invoke the
  * updateVertexTextureCoordinatesGLBuffer method to ensure that
- * the GL VBO that holds the vertex data is updated.
+ * the GL VBO that holds the vertex content is updated.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setVertexTexCoord2F: (ccTex2F) aTex2F at: (GLuint) index;
 
@@ -1160,61 +1582,73 @@
 -(void) setVertexTexCoord2F: (ccTex2F) aTex2F at: (GLuint) index forTextureUnit: (GLuint) texUnit DEPRECATED_ATTRIBUTE;
 
 /**
- * Returns the index element at the specified index from the vertex data.
+ * Returns the index element at the specified index from the vertex content.
  *
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(GLuint) vertexIndexAt: (GLuint) index;
 
 /**
- * Sets the index element at the specified index in the vertex data to the specified value.
+ * Sets the index element at the specified index in the vertex content to the specified value.
  * 
  * The index refers to vertices, not bytes. The implementation takes into consideration
  * the vertexStride and elementOffset properties to access the correct element.
  *
  * When all vertex changes have been made, be sure to invoke the
  * updateVertexIndicesGLBuffer method to ensure that the GL VBO
- * that holds the vertex data is updated.
+ * that holds the vertex content is updated.
  *
- * If the releaseRedundantData method has been invoked and the underlying
- * vertex data has been released, this method will raise an assertion exception.
+ * If the releaseRedundantContent method has been invoked and the underlying
+ * vertex content has been released, this method will raise an assertion exception.
  */
 -(void) setVertexIndex: (GLuint) vertexIndex at: (GLuint) index;
 
-/** Updates the GL engine buffer with the vertex location data in this mesh. */
+/** Updates the GL engine buffer with the vertex location content in this mesh. */
 -(void) updateVertexLocationsGLBuffer;
 
-/** Updates the GL engine buffer with the vertex normal data in this mesh. */
+/** Updates the GL engine buffer with the vertex normal content in this mesh. */
 -(void) updateVertexNormalsGLBuffer;
 
-/** Updates the GL engine buffer with the vertex color data in this mesh. */
+/** Updates the GL engine buffer with the vertex tangent content in this mesh. */
+-(void) updateVertexTangentsGLBuffer;
+
+/** Updates the GL engine buffer with the vertex tangent content in this mesh. */
+-(void) updateVertexBitangentsGLBuffer;
+
+/** Updates the GL engine buffer with the vertex color content in this mesh. */
 -(void) updateVertexColorsGLBuffer;
 
+/** Updates the GL engine buffer with the vertex bone weight content in this mesh. */
+-(void) updateVertexBoneWeightsGLBuffer;
+
+/** Updates the GL engine buffer with the vertex bone indices content in this mesh. */
+-(void) updateVertexBoneIndicesGLBuffer;
+
 /**
- * Updates the GL engine buffer with the vertex texture coord data from the
+ * Updates the GL engine buffer with the vertex texture coord content from the
  * specified texture unit in this mesh.
  */
 -(void) updateVertexTextureCoordinatesGLBufferForTextureUnit: (GLuint) texUnit;
 
 /**
- * Updates the GL engine buffer with the vertex texture coord data from
+ * Updates the GL engine buffer with the vertex texture coord content from
  * texture unit zero in this mesh.
  */
 -(void) updateVertexTextureCoordinatesGLBuffer;
 
 /**
- * Convenience method to update the GL engine buffers with the vertex content data in this mesh.
+ * Convenience method to update the GL engine buffers with the vertex content in this mesh.
  *
  * This updates the content of each vertex. It does not update the vertex indices. To update
  * the vertex index data to the GL engine, use the updateVertexIndicesGLBuffer method.
  */
 -(void) updateGLBuffers;
 
-/** Updates the GL engine buffer with the vertex index data in this mesh. */
+/** Updates the GL engine buffer with the vertex index content in this mesh. */
 -(void) updateVertexIndicesGLBuffer;
 
 
@@ -1284,11 +1718,11 @@
  * inclusive, and the value of the faceCount property, exclusive.
  *
  * The returned face structure contains only the locations of the vertices. If the vertex
- * locations are interleaved with other vertex data, such as color or texture coordinates,
+ * locations are interleaved with other vertex content, such as color or texture coordinates,
  * or other padding, that data will not appear in the returned face structure. For that
- * remaining vertex data, you can use the faceIndicesAt: method to retrieve the indices
- * of the vertex data, and then use the vertex accessor methods to retrieve the individual
- * vertex data components.
+ * remaining vertex content, you can use the faceIndicesAt: method to retrieve the indices
+ * of the vertex content, and then use the vertex accessor methods to retrieve the individual
+ * vertex content components.
  *
  * If you will be invoking this method frequently, you can optionally set the
  * shouldCacheFaces property to YES to speed access, and possibly improve performance.
@@ -1302,11 +1736,11 @@
  * within the specified face indices structure.
  *
  * The returned face structure contains only the locations of the vertices. If the vertex
- * locations are interleaved with other vertex data, such as color or texture coordinates,
+ * locations are interleaved with other vertex content, such as color or texture coordinates,
  * or other padding, that data will not appear in the returned face structure. For that
- * remaining vertex data, you can use the faceIndicesAt: method to retrieve the indices
- * of the vertex data, and then use the vertex accessor methods to retrieve the individual
- * vertex data components.
+ * remaining vertex content, you can use the faceIndicesAt: method to retrieve the indices
+ * of the vertex content, and then use the vertex accessor methods to retrieve the individual
+ * vertex content components.
  */
 -(CC3Face) faceFromIndices: (CC3FaceIndices) faceIndices;
 
@@ -1319,7 +1753,7 @@
  * inclusive, and the value of the faceCount property, exclusive.
  *
  * The returned structure reference contains the indices of the three vertices that
- * make up the triangular face. These indices index into the actual vertex data within
+ * make up the triangular face. These indices index into the actual vertex content within
  * the layout of the mesh.
  *
  * This method takes into consideration any padding (stride) between the vertex indices.
@@ -1426,6 +1860,69 @@ globalIntersections: (CC3MeshIntersection*) intersections
 	acceptBackFaces: (BOOL) acceptBackFaces
 	acceptBehindRay: (BOOL) acceptBehind;
 
+
+#pragma mark Drawing
+
+/**
+ * The drawing mode indicating how the vertices are connected (points, lines, triangles...).
+ *
+ * This must be set with a valid GL drawing mode enumeration. The default value is GL_TRIANGLES.
+ */
+@property(nonatomic, assign) GLenum drawingMode;
+
+/**
+ * Draws the local content of this mesh node by following these steps:
+ *   -# If the shouldDecorateNode property of the visitor is YES, and this node
+ *      has a material, invokes the drawWithVisitor method of the material.
+ *      Otherwise, invokes the CC3Material class-side unbind method.
+ *   -# Invokes the drawWithVisitor: method of the encapsulated mesh.
+ *
+ * This method is called automatically from the transformAndDrawWithVisitor: method
+ * of this node. Usually, the application never needs to invoke this method directly.
+ */
+-(void) drawWithVisitor: (CC3NodeDrawingVisitor*) visitor;
+
+
+#pragma mark Deprecated methods
+
+/** *@deprecated Renamed to vertexBoneCount. */
+@property(nonatomic, readonly) GLuint vertexUnitCount DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to vertexWeightForBoneInfluence:at:. */
+-(GLfloat) vertexWeightForVertexUnit: (GLuint) vertexUnit at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to setVertexWeight:forBoneInfluence:at:. */
+-(void) setVertexWeight: (GLfloat) aWeight forVertexUnit: (GLuint) vertexUnit at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to vertexBoneWeightsAt:. */
+-(GLfloat*) vertexWeightsAt: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to setVertexBoneWeights:at:. */
+-(void) setVertexWeights: (GLfloat*) weights at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to vertexBoneIndexForBoneInfluence:at:. */
+-(GLuint) vertexMatrixIndexForVertexUnit: (GLuint) vertexUnit at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to setVertexBoneIndex:forBoneInfluence:at:. */
+-(void) setVertexMatrixIndex: (GLuint) aMatrixIndex
+			   forVertexUnit: (GLuint) vertexUnit
+						  at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to vertexBoneIndicesAt:. */
+-(GLvoid*) vertexMatrixIndicesAt: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to setVertexBoneIndices:at:. */
+-(void) setVertexMatrixIndices: (GLvoid*) mtxIndices at: (GLuint) index DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to vertexBoneIndexType. */
+@property(nonatomic, readonly) GLenum matrixIndexType DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to updateVertexBoneWeightsGLBuffer. */
+-(void) updateVertexWeightsGLBuffer DEPRECATED_ATTRIBUTE;
+
+/** *@deprecated Renamed to updateVertexBoneIndicesGLBuffer. */
+-(void) updateVertexMatrixIndicesGLBuffer DEPRECATED_ATTRIBUTE;
+
 @end
 
 
@@ -1453,282 +1950,5 @@ globalIntersections: (CC3MeshIntersection*) intersections
 -(CC3MeshNode*) getMeshNodeNamed: (NSString*) aName;
 
 @end
-
-
-#pragma mark -
-#pragma mark CC3PlaneNode
-
-/**
- * CC3PlaneNode is a type of CC3MeshNode that is specialized to display planes and
- * simple rectanglular meshes.
- *
- * Since a plane is a mesh like any other mesh, the functionality required to create
- * and manipulate plane meshes is present in the CC3MeshNode class, and if you choose,
- * you can create and manage plane meshes using that class alone. Some plane-specific
- * functionality is defined within this class.
- * 
- * Several convenience methods exist in the CC3MeshNode class to aid in constructing a
- * CC3PlaneNode instance:
- *   - populateAsCenteredRectangleWithSize:
- *   - populateAsRectangleWithSize:andPivot:
- */
-@interface CC3PlaneNode : CC3MeshNode
-
-/**
- * Returns a CC3Plane structure corresponding to this plane.
- *
- * This structure is built from the location vertices of three of the corners
- * of the bounding box of the mesh.
- */
-@property(nonatomic, readonly) CC3Plane plane;
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3BoxNode
-
-/**
- * CC3BoxNode is a type of CC3MeshNode that is specialized to display simple box or cube meshes.
- *
- * Since a cube or box is a mesh like any other mesh, the functionality required to create and
- * manipulate box meshes is present in the CC3MeshNode class, and if you choose, you can create
- * and manage box meshes using that class alone. At present, CC3BoxNode exists for the most part
- * simply to identify box meshes as such. However, in future, additional state or behaviour may
- * be added to this class.
- * 
- * You can use the following convenience method to aid in constructing a CC3BoxNode instance:
- *   - populateAsSolidBox:
- *   - populateAsSolidBox:withCorner:
- *   - populateAsWireBox:
- */
-@interface CC3BoxNode : CC3MeshNode
-@end
-
-
-#pragma mark -
-#pragma mark CC3LineNode
-
-/**
- * CC3LineNode is a type of CC3MeshNode that is specialized to display lines.
- *
- * Since lines are a mesh like any other mesh, the functionality required to create and manipulate
- * line meshes is present in the CC3MeshNode class, and if you choose, you can create and manage line
- * meshes using that class alone. At present, CC3LineNode exists for the most part simply to identify
- * box meshes as such. However, in future, additional state or behaviour may be added to this class.
- *
- * To draw lines, you must make sure that the drawingMode property is set to one of GL_LINES,
- * GL_LINE_STRIP or GL_LINE_LOOP. This property must be set after the mesh is attached.
- * Other than that, you configure the mesh node and its mesh as you would with any mesh node.
- *
- * To color the lines, use the pureColor property to draw the lines in a pure, solid color
- * that is not affected by lighting conditions. You can also add a material to your CC3LineNode
- * instance to get more subtle coloring and blending, but this can sometimes
- * appear strange with lines. You can also use CCActionInterval to change the tinting or
- * opacity of the lines, as you would with any mesh node.
- *
- * Several convenience methods exist in the CC3MeshNode class to aid in constructing a
- * CC3LineNode instance:
- *   - populateAsLineStripWith:vertices:andRetain:
- *   - populateAsWireBox:  - a simple wire box
- */
-@interface CC3LineNode : CC3MeshNode
-
-/** @deprecated Property renamed to lineSmoothingHint on CC3MeshNode. */
-@property(nonatomic, assign) GLenum performanceHint DEPRECATED_ATTRIBUTE;
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3WireframeBoundingBoxNode
-
-/**
- * CC3WireframeBoundingBoxNode is a type of CC3LineNode specialized for drawing
- * a wireframe bounding box around another node. A CC3WireframeBoundingBoxNode
- * is typically added as a child node to the node whose bounding box is to
- * be displayed.
- *
- * The CC3WireframeBoundingBoxNode node can be set to automatically track
- * the dynamic nature of the boundingBox of the parent node by setting
- * the shouldAlwaysMeasureParentBoundingBox property to YES.
- *
- * Since we don't want to add descriptor labels or wireframe boxes to
- * wireframe nodes, the shouldDrawDescriptor, shouldDrawWireframeBox,
- * and shouldDrawLocalContentWireframeBox properties are overridden to
- * do nothing when set, and to always return YES.
- *
- * Similarly, CC3WireframeBoundingBoxNode node does not participate in calculating
- * the bounding box of the node whose bounding box it is drawing, since, as a child
- * of that node, it would interfere with accurate measurement of the bounding box.
- *
- * The shouldIncludeInDeepCopy property returns NO, so that the CC3WireframeBoundingBoxNode
- * will not be copied when the parent node is copied. A bounding box node for the copy
- * will be created automatically when each of the shouldDrawLocalContentWireframeBox
- * and shouldDrawWireframeBox properties are copied, if they are set to YES on the
- * original node that is copied.
- * 
- * A CC3WireframeBoundingBoxNode will continue to be visible even when its ancestor
- * nodes are invisible, unless the CC3WireframeBoundingBoxNode itself is made invisible.
- */
-@interface CC3WireframeBoundingBoxNode : CC3LineNode {
-	BOOL shouldAlwaysMeasureParentBoundingBox : 1;
-}
-
-/**
- * Indicates whether the dimensions of this node should automatically be
- * remeasured on each update pass.
- *
- * If this property is set to YES, the box will automatically be resized
- * to account for movements by any descendant nodes of the parent node.
- * For bounding box nodes that track the overall boundingBox of a parent
- * node, this property should be set to YES.
- *
- * It is not necessary to set this property to YES to account for changes in
- * the transform properties of the parent node itself, or if this node is
- * tracking the bounding box of local content of the parent node. Generally,
- * changes to that will automatically be handled by the transform updates.
- *
- * When setting this property, be aware that measuring the bounding box of
- * the parent node can be an expensive operation.
- *
- * The initial value of this property is NO.
- */
-@property(nonatomic, assign) BOOL shouldAlwaysMeasureParentBoundingBox;
-
-
-#pragma mark Updating
-
-/**
- * Updates this wireframe box from the bounding box of the parent node.
- *
- * The extent of the wireframe box is usually set automatically when first created, and is not
- * automatically updated if the parent bounding box changes. If you want this wireframe to update
- * automatically on each update frame, set the shouldAlwaysMeasureParentBoundingBox property to YES.
- *
- * However, updating on each frame can be a drag on performance, so if the parent bounding box
- * changes under app control, you can invoke this method whenever the bounding box of the parent
- * node changes to keep the wireframe box synchronized with its parent. 
- */
--(void) updateFromParentBoundingBox;
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3WireframeLocalContentBoundingBoxNode
-
-/**
- * CC3WireframeLocalContentBoundingBoxNode is a CC3WireframeBoundingBoxNode that
- * further specializes in drawing a bounding box around the local content of another
- * node with local content. A CC3WireframeLocalContentBoundingBoxNode is typically
- * added as a child node to the node whose bounding box is to be displayed.
- *
- * Since for almost all nodes, the local content generally does not change, the
- * shouldAlwaysMeasureParentBoundingBox property is usually left at NO, to avoid
- * unnecessary remeasuring of the bounding box of the local content of the parent
- * node when we know it will not be changing. However, this property can be set to
- * YES when adding a CC3WireframeLocalContentBoundingBoxNode to a node whose local
- * content does change frequently.
- */
-@interface  CC3WireframeLocalContentBoundingBoxNode  : CC3WireframeBoundingBoxNode
-@end
-
-
-#pragma mark -
-#pragma mark CC3DirectionMarkerNode
-
-/**
- * CC3DirectionMarkerNode is a type of CC3LineNode specialized for drawing a line from the origin
- * of its parent node to a point outside the bounding box of the parent node, in a particular
- * direction. A CC3DirectionMarkerNode is typically added as a child node to the node to visibly
- * indicate the orientation of the parent node.
- *
- * The CC3DirectionMarkerNode node can be set to automatically track the dynamic nature of the
- * boundingBox of the parent node by setting the shouldAlwaysMeasureParentBoundingBox property to YES.
- *
- * Since we don't want to add descriptor labels or wireframe boxes to direction marker nodes, the
- * shouldDrawDescriptor, shouldDrawWireframeBox, and shouldDrawLocalContentWireframeBox properties
- * are overridden to do nothing when set, and to always return YES.
- *
- * Similarly, CC3DirectionMarkerNode node does not participate in calculating the bounding box of
- * the node whose bounding box it is drawing, since, as a child of that node, it would interfere
- * with accurate measurement of the bounding box.
- *
- * The shouldIncludeInDeepCopy property returns YES by default, so that the
- * CC3DirectionMarkerNode will be copied when the parent node is copied.
- * 
- * A CC3DirectionMarkerNode will continue to be visible even when its ancestor
- * nodes are invisible, unless the CC3DirectionMarkerNode itself is made invisible.
- */
-@interface CC3DirectionMarkerNode : CC3WireframeBoundingBoxNode {
-	CC3Vector markerDirection;
-}
-
-/**
- * Indicates the unit direction towards which this line marker will point from
- * the origin of the parent node.
- *
- * When setting the value of this property, the incoming vector will be normalized to a unit vector.
- *
- * The value of this property defaults to kCC3VectorUnitZNegative, a unit vector
- * in the direction of the negative Z-axis, which is the OpenGL ES default direction.
- */
-@property(nonatomic, assign) CC3Vector markerDirection;
-
-/**
- * Returns the proportional distance that the direction marker line should protrude from the parent
- * node. This is measured in proportion to the distance from the origin of the parent node to the
- * side of the bounding box through which the line is protruding.
- *
- * The initial value of this property is 1.5.
- */
-+(GLfloat) directionMarkerScale;
-
-/**
- * Sets the proportional distance that the direction marker line should protrude from the parent node.
- * This is measured in proportion to the distance from the origin of the parent node to the side of
- * the bounding box through which the line is protruding.
- *
- * The initial value of this property is 1.5.
- */
-+(void) setDirectionMarkerScale: (GLfloat) scale;
-
-/**
- * Returns the minimum length of a direction marker line, expressed in the global
- * coordinate system.
- *
- * Setting a value for this property can be useful for adding direction markers
- * to very small nodes, or nodes that do not have volume, such as a camera or light.
- *
- * The initial value of this property is zero.
- */
-+(GLfloat) directionMarkerMinimumLength;
-
-/**
- * Sets the minimum length of a direction marker line, expressed in the global
- * coordinate system.
- *
- * Setting a value for this property can be useful for adding direction markers
- * to very small nodes, or nodes that do not have volume, such as a camera or light.
- *
- * The initial value of this property is zero.
- */
-+(void) setDirectionMarkerMinimumLength: (GLfloat) len;
-
-@end
-
-
-#pragma mark -
-#pragma mark CC3BoundingVolumeDisplayNode
-
-/**
- * CC3BoundingVolumeDisplayNode is a type of CC3MeshNode specialized for displaying
- * the bounding volume of its parent node. A CC3BoundingVolumeDisplayNode is typically
- * added as a child node to the node whose bounding volume is to be displayed.
- */
-@interface CC3BoundingVolumeDisplayNode : CC3MeshNode
-@end
-
 
 

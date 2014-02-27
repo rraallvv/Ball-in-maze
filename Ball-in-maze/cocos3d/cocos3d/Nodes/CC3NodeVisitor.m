@@ -1,9 +1,9 @@
 /*
  * CC3NodeVisitor.m
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2011-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2011-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -32,10 +32,10 @@
 #import "CC3NodeVisitor.h"
 #import "CC3Scene.h"
 #import "CC3Layer.h"
-#import "CC3VertexArrayMesh.h"
-#import "CC3OpenGLES11Engine.h"
-#import "CC3EAGLView.h"
+#import "CC3Mesh.h"
 #import "CC3NodeSequencer.h"
+#import "CC3VertexSkinning.h"
+#import "CC3GLView.h"
 
 @interface CC3Node (TemplateMethods)
 -(void) processUpdateBeforeTransform: (CC3NodeUpdatingVisitor*) visitor;
@@ -50,76 +50,57 @@
 #pragma mark -
 #pragma mark CC3NodeVisitor
 
-@interface CC3NodeVisitor (TemplateMethods)
--(void) process: (CC3Node*) aNode;
--(void) processBeforeChildren: (CC3Node*) aNode;
--(void) processChildrenOf: (CC3Node*) aNode;
--(void) processAfterChildren: (CC3Node*) aNode;
--(void) open;
--(void) close;
--(void) processRemovals;
-@end
-
 @implementation CC3NodeVisitor
 
-@synthesize currentNode, startingNode, shouldVisitChildren, camera;
+@synthesize currentNode=_currentNode, startingNode=_startingNode;
+@synthesize shouldVisitChildren=_shouldVisitChildren, camera=_camera;
 
--(void) dealloc {
-	currentNode = nil;				// not retained
-	startingNode = nil;				// not retained
-	camera = nil;					// not retained
-	[pendingRemovals release];
-	[super dealloc];
+-(CC3PerformanceStatistics*) performanceStatistics { return _startingNode.performanceStatistics; }
+
+-(CC3Camera*) camera {
+	if ( !_camera ) self.camera = self.defaultCamera;
+	return _camera;
 }
 
--(CC3PerformanceStatistics*) performanceStatistics { return startingNode.performanceStatistics; }
+-(CC3Camera*) defaultCamera { return _startingNode.activeCamera; }
 
--(id) init {
-	if ( (self = [super init]) ) {
-		currentNode = nil;
-		startingNode = nil;
-		camera = nil;
-		pendingRemovals = nil;
-		shouldVisitChildren = YES;
-	}
-	return self;
-}
-
-+(id) visitor { return [[[self alloc] init] autorelease]; }
-
--(void) visit: (CC3Node*) aNode {
-	if (!aNode) return;					// Must have a node to work on
+-(BOOL) visit: (CC3Node*) aNode {
+	BOOL rslt = NO;
 	
-	currentNode = aNode;				// Make the node being processed available.
+	if (!aNode) return rslt;			// Must have a node to work on
+	
+	_currentNode = aNode;				// Make the node being processed available.
 
-	if (!startingNode) {				// If this is the first node, start up
-		startingNode = aNode;			// Not retained
-		if (!camera) camera = aNode.activeCamera;	// Retrieve and cache the camera. Not retained
+	if (!_startingNode) {				// If this is the first node, start up
+		_startingNode = aNode;			// Not retained
 		[self open];					// Open the visitor
 	}
 
-	[self process: aNode];				// Process the node and its children recursively
+	rslt = [self process: aNode];		// Process the node and its children recursively
 
-	if (aNode == startingNode) {		// If we're back to the first node, finish up
+	if (aNode == _startingNode) {		// If we're back to the first node, finish up
 		[self close];					// Close the visitor
-		camera = nil;					// Not retained
-		startingNode = nil;				// Not retained
+		_startingNode = nil;			// Not retained
 	}
 	
-	currentNode = nil;					// Done with this node now.
+	_currentNode = nil;					// Done with this node now.
+
+	return rslt;
 }
 
 /** Template method that is invoked automatically during visitation to process the specified node. */
--(void) process: (CC3Node*) aNode {
-	LogTrace(@"%@ visiting %@ %@ children", self, aNode, (shouldVisitChildren ? @"and" : @"but not"));
+-(BOOL) process: (CC3Node*) aNode {
+	BOOL rslt = NO;
+	LogTrace(@"%@ visiting %@ %@ children", self, aNode, (_shouldVisitChildren ? @"and" : @"but not"));
 	
 	[self processBeforeChildren: aNode];	// Heavy lifting before visiting children
 	
-	if (shouldVisitChildren) {				// Recurse through the child nodes if required
-		[self processChildrenOf: aNode];
-	}
+	// Recurse through the child nodes if required
+	if (_shouldVisitChildren) rslt = [self processChildrenOf: aNode];
 
 	[self processAfterChildren: aNode];		// Heavy lifting after visiting children
+
+	return rslt;
 }
 
 /**
@@ -142,15 +123,19 @@
  *
  * Subclasses may override this method to establish a different traversal.
  */
--(void) processChildrenOf: (CC3Node*) aNode {
-	CC3Node* currNode = currentNode;	// Remember current node
+-(BOOL) processChildrenOf: (CC3Node*) aNode {
+	CC3Node* currNode = _currentNode;		// Remember current node
 	
-	CCArray* children = aNode.children;
+	NSArray* children = aNode.children;
 	for (CC3Node* child in children) {
-		[self visit: child];
+		if ( [self visit: child] ) {
+			_currentNode = currNode;		// Restore current node
+			return YES;
+		}
 	}
-
-	currentNode = currNode;				// Restore current node
+	
+	_currentNode = currNode;				// Restore current node
+	return NO;
 }
 
 /**
@@ -184,32 +169,67 @@
  * state, upon completion of a visitation run, and should invoke this superclass
  * implementation to process any removal requests.
  */
--(void) close {
-	[self processRemovals];
-}
+-(void) close { [self processRemovals]; }
 
 -(void) requestRemovalOf: (CC3Node*) aNode {
-	if (!pendingRemovals) {
-		pendingRemovals = [[CCArray array] retain];
-	}
-	[pendingRemovals addObject: aNode];
+	if (!_pendingRemovals) _pendingRemovals = [NSMutableArray array];
+	[_pendingRemovals addObject: aNode];
 }
 
 -(void) processRemovals {
-	for (CC3Node* n in pendingRemovals) {
-		[n remove];
-	}
-	[pendingRemovals removeAllObjects];
+	for (CC3Node* n in _pendingRemovals) [n remove];
+	[_pendingRemovals removeAllObjects];
 }
 
--(NSString*) description {
-	return [NSString stringWithFormat: @"%@", [self class]];
+
+#pragma mark Accessing node contents
+
+-(CC3Scene*) scene { return _startingNode.scene; }
+
+-(CC3MeshNode*) currentMeshNode { return (CC3MeshNode*)self.currentNode; }
+
+-(CC3Material*) currentMaterial { return self.currentMeshNode.material; }
+
+-(GLuint) textureCount { return self.currentMeshNode.textureCount; }
+
+-(CC3TextureUnit*) currentTextureUnitAt: (GLuint) texUnit {
+	return [self.currentMaterial textureForTextureUnit: texUnit].textureUnit;
 }
+
+-(CC3ShaderProgram*) currentShaderProgram { return self.currentMeshNode.shaderProgram; }
+
+-(CC3Mesh*) currentMesh { return self.currentMeshNode.mesh; }
+
+-(NSUInteger) lightCount { return self.scene.lights.count; }
+
+-(CC3Light*) lightAt: (GLuint) index {
+	NSArray* lights = self.scene.lights;
+	if (index < lights.count) return [lights objectAtIndex: index];
+	return nil;
+}
+
+
+#pragma mark Allocation and initialization
+
+-(id) init {
+	if ( (self = [super init]) ) {
+		_currentNode = nil;
+		_startingNode = nil;
+		_camera = nil;
+		_pendingRemovals = nil;
+		_shouldVisitChildren = YES;
+	}
+	return self;
+}
+
++(id) visitor { return [[self alloc] init]; }
+
+-(NSString*) description { return [NSString stringWithFormat: @"%@", [self class]]; }
 
 -(NSString*) fullDescription {
-	return [NSString stringWithFormat: @"%@ visiting %@ %@ children, %i removals",
-			[self description], startingNode, (shouldVisitChildren ? @"and" : @"but not"),
-			pendingRemovals.count];
+	return [NSString stringWithFormat: @"%@ visiting %@ %@ children, %lu removals",
+			[self description], _startingNode, (_shouldVisitChildren ? @"and" : @"but not"),
+			(unsigned long)_pendingRemovals.count];
 }
 
 @end
@@ -220,20 +240,21 @@
 
 @implementation CC3NodeTransformingVisitor
 
-@synthesize shouldLocalizeToStartingNode, shouldRestoreTransforms, isTransformDirty;
+@synthesize shouldLocalizeToStartingNode=_shouldLocalizeToStartingNode;
+@synthesize shouldRestoreTransforms=_shouldRestoreTransforms, isTransformDirty=_isTransformDirty;
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		isTransformDirty = NO;
-		shouldLocalizeToStartingNode = NO;
-		shouldRestoreTransforms = NO;
+		_isTransformDirty = NO;
+		_shouldLocalizeToStartingNode = NO;
+		_shouldRestoreTransforms = NO;
 	}
 	return self;
 }
 
 -(void) open {
 	[super open];
-	isTransformDirty = shouldLocalizeToStartingNode;
+	_isTransformDirty = _shouldLocalizeToStartingNode;
 }
 
 /**
@@ -244,10 +265,14 @@
  * with a particular node, not the visitor, and a child node could modify it and mess
  * up later siblings of a the parent node.
  */
--(void) process: (CC3Node*) aNode {
-	BOOL wasAncestorDirty = isTransformDirty;
-	[super process: aNode];
-	isTransformDirty = wasAncestorDirty;
+-(BOOL) process: (CC3Node*) aNode {
+	BOOL rslt = NO;
+
+	BOOL wasAncestorDirty = _isTransformDirty;
+	rslt = [super process: aNode];
+	_isTransformDirty = wasAncestorDirty;
+	
+	return rslt;
 }
 
 /**
@@ -256,9 +281,9 @@
  */
 -(void) processBeforeChildren: (CC3Node*) aNode {
 	
-	isTransformDirty = isTransformDirty || aNode.isTransformDirty;
+	_isTransformDirty = _isTransformDirty || aNode.isTransformDirty;
 	
-	if (isTransformDirty) {
+	if (_isTransformDirty) {
 		[self.performanceStatistics incrementNodesTransformed];
 		[aNode buildTransformMatrixWithVisitor: self];
 	}
@@ -271,23 +296,23 @@
  */
 -(void) close {
 	[super close];
-	if (shouldLocalizeToStartingNode && shouldRestoreTransforms) {
-		[startingNode markTransformDirty];
-		[startingNode updateTransformMatrices];
+	if (_shouldLocalizeToStartingNode && _shouldRestoreTransforms) {
+		[_startingNode markTransformDirty];
+		[_startingNode updateTransformMatrices];
 	}
 }
 
 -(CC3Matrix*) parentTansformMatrixFor: (CC3Node*) aNode {
 	CC3Node* parentNode = aNode.parent;
-	BOOL localizeToThisNode = shouldLocalizeToStartingNode && (aNode == startingNode ||
-															   parentNode == startingNode);
-	return localizeToThisNode ? nil : aNode.parentTransformMatrix;
+	BOOL localizeToThisNode = _shouldLocalizeToStartingNode && (aNode == _startingNode ||
+															   parentNode == _startingNode);
+	return localizeToThisNode ? nil : aNode.parentGlobalTransformMatrix;
 }
 
 -(NSString*) fullDescription {
 	return [NSString stringWithFormat: @"%@, localize: %@, dirty: %@",
-			[super fullDescription], NSStringFromBoolean(shouldLocalizeToStartingNode),
-			NSStringFromBoolean(isTransformDirty)];
+			[super fullDescription], NSStringFromBoolean(_shouldLocalizeToStartingNode),
+			NSStringFromBoolean(_isTransformDirty)];
 }
 
 @end
@@ -298,10 +323,10 @@
 
 @implementation CC3NodeUpdatingVisitor
 
-@synthesize deltaTime;
+@synthesize deltaTime=_deltaTime;
 
 -(void) processBeforeChildren: (CC3Node*) aNode {
-	LogTrace(@"Updating %@ after %.3f ms", aNode, deltaTime * 1000.0f);
+	LogTrace(@"Updating %@ after %.3f ms", aNode, _deltaTime * 1000.0f);
 	[self.performanceStatistics incrementNodesUpdated];
 	[aNode processUpdateBeforeTransform: self];
 
@@ -316,7 +341,7 @@
 
 -(NSString*) fullDescription {
 	return [NSString stringWithFormat: @"%@, dt: %.3f ms",
-			[super fullDescription], deltaTime * 1000.0f];
+			[super fullDescription], _deltaTime * 1000.0f];
 }
 
 @end
@@ -331,19 +356,19 @@
 
 @implementation CC3NodeBoundingBoxVisitor
 
-@synthesize boundingBox;
+@synthesize boundingBox=_boundingBox;
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		boundingBox = kCC3BoundingBoxNull;
-		shouldRestoreTransforms = YES;
+		_boundingBox = kCC3BoxNull;
+		_shouldRestoreTransforms = YES;
 	}
 	return self;
 }
 
 -(void) open {
 	[super open];
-	boundingBox = kCC3BoundingBoxNull;
+	_boundingBox = kCC3BoxNull;
 }
 
 -(void) processAfterChildren: (CC3Node*) aNode {
@@ -354,104 +379,366 @@
 		// is the starting node, don't apply transform to bounding box, because we want
 		// the bounding box in the local coordinate system of the startingNode
 		CC3LocalContentNode* lcNode = (CC3LocalContentNode*)aNode;
-		CC3BoundingBox nodeBox = (shouldLocalizeToStartingNode && (aNode == startingNode)) 
+		CC3Box nodeBox = (_shouldLocalizeToStartingNode && (aNode == _startingNode))
 									? lcNode.localContentBoundingBox
 									: lcNode.globalLocalContentBoundingBox;
 
 		// Merge the node's bounding box into the aggregate bounding box
-		LogTrace(@"Merging %@ from %@ into %@", NSStringFromCC3BoundingBox(nodeBox),
-				 aNode, NSStringFromCC3BoundingBox(boundingBox));
-		boundingBox = CC3BoundingBoxUnion(boundingBox, nodeBox);
+		LogTrace(@"Merging %@ from %@ into %@", NSStringFromCC3Box(nodeBox),
+				 aNode, NSStringFromCC3Box(_boundingBox));
+		_boundingBox = CC3BoxUnion(_boundingBox, nodeBox);
 	}
 }
 
 -(NSString*) fullDescription {
 	return [NSString stringWithFormat: @"%@, box: %@",
-			[super fullDescription], NSStringFromCC3BoundingBox(boundingBox)];
+			[super fullDescription], NSStringFromCC3Box(_boundingBox)];
 }
 
 @end
+
 
 #pragma mark -
 #pragma mark CC3NodeDrawingVisitor
 
-@interface CC3NodeDrawingVisitor (TemplateMethods)
--(BOOL) shouldDrawNode: (CC3Node*) aNode;
--(BOOL) isNodeVisibleForDrawing: (CC3Node*) aNode;
-@end
-
 @implementation CC3NodeDrawingVisitor
 
-@synthesize drawingSequencer;
-@synthesize shouldDecorateNode, shouldClearDepthBuffer;
-@synthesize textureUnit, textureUnitCount;
+@synthesize gl=_gl, deltaTime=_deltaTime;
+@synthesize shouldDecorateNode=_shouldDecorateNode;
+@synthesize isDrawingEnvironmentMap=_isDrawingEnvironmentMap;
+@synthesize current2DTextureUnit=_current2DTextureUnit;
+@synthesize currentCubeTextureUnit=_currentCubeTextureUnit;
+@synthesize currentColor=_currentColor;
 
--(void) dealloc {
-	drawingSequencer = nil;		// not retained
-	[super dealloc];
+-(CC3OpenGL*) gl {
+	if ( !_gl) self.gl = CC3OpenGL.sharedGL;
+	return _gl;
 }
 
--(id) init {
-	if ( (self = [super init]) ) {
-		shouldDecorateNode = YES;
-		shouldClearDepthBuffer = YES;
-	}
-	return self;
+-(id<CC3RenderSurface>) renderSurface {
+	if ( !_renderSurface ) self.renderSurface = self.defaultRenderSurface;
+	return _renderSurface;
+}
+
+-(id<CC3RenderSurface>) defaultRenderSurface { return self.scene.viewSurface; }
+
+-(void) setRenderSurface: (id<CC3RenderSurface>) renderSurface {
+	if (renderSurface == _renderSurface) return;
+	_renderSurface = renderSurface;
+	[self alignCameraViewport];
+}
+
+-(void) setCamera: (CC3Camera*) camera {
+	[super setCamera: camera];
+	[self alignCameraViewport];
+}
+
+/** If the viewport of the camera has not been set directly, align it to the surface shape. */
+-(void) alignCameraViewport {
+	if ( CC3ViewportIsZero(_camera.viewport) )
+		_camera.viewport = CC3ViewportFromOriginAndSize(kCC3IntPointZero, self.renderSurface.size);
+}
+
+-(void) alignShotWith: (CC3NodeDrawingVisitor*) otherVisitor {
+	self.camera = otherVisitor.camera;
+	self.renderSurface = otherVisitor.renderSurface;
+}
+
+/** 
+ * Overridden to return either the real shader program, or the pure-color shader program,
+ * depending on whether the node should be decorated. For example, during node picking,
+ * the node is not decorated, and the pure-color program will be used.
+ * The shaderProgram will be selected if it has not been assigned already.
+ */
+-(CC3ShaderProgram*) currentShaderProgram {
+	return (self.shouldDecorateNode
+			? self.currentMeshNode.shaderProgram
+			: self.currentMeshNode.shaderContext.pureColorProgram);
 }
 
 -(void) processBeforeChildren: (CC3Node*) aNode {
 	[self.performanceStatistics incrementNodesVisitedForDrawing];
-	if ([self shouldDrawNode: aNode]) {
-		[aNode transformAndDrawWithVisitor: self];
-	}
+	if ([self shouldDrawNode: aNode]) [aNode transformAndDrawWithVisitor: self];
+	_currentSkinSection = nil;
 }
 
 -(BOOL) shouldDrawNode: (CC3Node*) aNode {
 	return aNode.hasLocalContent
 			&& [self isNodeVisibleForDrawing: aNode]
-			&& [aNode doesIntersectFrustum: camera.frustum];
+			&& [self doesNodeIntersectFrustum: aNode];
+}
+
+/** If we're drawing in clip-space, ignore the frustum. */
+-(BOOL) doesNodeIntersectFrustum: (CC3Node*) aNode {
+	return [aNode doesIntersectFrustum: self.camera.frustum];
 }
 
 -(BOOL) isNodeVisibleForDrawing: (CC3Node*) aNode { return aNode.visible; }
 
--(void) processChildrenOf: (CC3Node*) aNode {
-	if (drawingSequencer) {
-		CC3Node* currNode = currentNode;	// Remember current node
+-(BOOL) processChildrenOf: (CC3Node*) aNode {
+	if ( !_drawingSequencer ) return [super processChildrenOf: aNode];
 
-		shouldVisitChildren = NO;
-		[drawingSequencer visitNodesWithNodeVisitor: self];
-
-		currentNode = currNode;				// Restore current node
-	} else {
-		[super processChildrenOf: aNode];
-	}
+	// Remember current node and whether children should be visited
+	CC3Node* currNode = _currentNode;
+	BOOL currSVC = _shouldVisitChildren;
+	
+	_shouldVisitChildren = NO;	// Don't delve into node hierarchy if using sequencer
+	[_drawingSequencer visitNodesWithNodeVisitor: self];
+	
+	// Restore current node and whether children should be visited
+	_shouldVisitChildren = currSVC;
+	_currentNode = currNode;
+	
+	return NO;
 }
 
-/**
- * Initializes mesh and material context switching, and optionally clears the depth
- * buffer every time drawing begins so that 3D rendering will occur over top of any
- * previously rendered 3D or 2D artifacts.
- */
+/** Prepares GL programs, activates the rendering surface, and opens the scene and the camera. */
 -(void) open {
 	[super open];
 
-	[CC3Material resetSwitching];
-	[CC3VertexArrayMesh resetSwitching];
-	
-	if (shouldClearDepthBuffer) {
-		[[CC3OpenGLES11Engine engine].state clearDepthBuffer];
-	}
+	[CC3ShaderProgram willBeginDrawingScene];
+
+	[self activateRenderSurface];
+	[self openScene];
+	[self openCamera];
 }
 
+/** Activates the render surface. Subsequent GL drawing will be directed to this surface. */
+-(void) activateRenderSurface { [self.renderSurface activate]; }
+
+/** If this visitor was started on a CC3Scene node, set up for drawing an entire scene. */
+-(void) openScene {
+	if ( !_startingNode.isScene) return;
+	CC3Scene* scene = self.scene;
+	_deltaTime = scene.deltaFrameTime;
+	_drawingSequencer = scene.drawingSequencer;
+}
+
+/** Template method that opens the 3D camera. */
+-(void) openCamera {
+	[self.camera openWithVisitor: self];
+
+#if !CC3_GLSL
+	// Hack for OpenGL & OpenGL ES fixed pipeline to force update of light position/direction
+	// AFTER modelview matrix has been updated, as required by OpenGL fixed pipeline.
+	// See http://www.opengl.org/archives/resources/faq/technical/lights.htm#ligh0050
+	[self.scene illuminateWithVisitor: self];
+#endif	// !CC3_GLSL
+
+}
+
+/** Close the camera. */
+-(void) close {
+	[self closeCamera];
+	_drawingSequencer = nil;
+	[super close];
+}
+
+/** Close the camera. This is the compliment of the openCamera method. */
+-(void) closeCamera { [self.camera closeWithVisitor: self]; }
+
 -(void) draw: (CC3Node*) aNode {
+	LogTrace(@"Drawing %@", aNode);
 	[aNode drawWithVisitor: self];
 	[self.performanceStatistics incrementNodesDrawn];
 }
 
+-(void) resetTextureUnits {
+	// Under OGLES 2.0 & OGL, the required texture units are determined by the shader uniforms.
+	// Under OGLES 1.1, they are determined by the number of textures attached to the mesh node.
+	CC3ShaderProgram* sp = self.currentShaderProgram;
+	_current2DTextureUnit = 0;
+	_currentCubeTextureUnit = sp ? sp.texture2DCount : self.textureCount;
+}
+
+-(void) disableUnusedTextureUnits {
+
+	// Determine the maximum number of textures of each type that could be used
+	// Under OGLES 2.0 & OGL, this is determined by the shader uniforms.
+	// Under OGLES 1.1, this is determined by the number of textures attached to the mesh node.
+	CC3ShaderProgram* sp = self.currentShaderProgram;
+	GLuint tex2DMax = sp ? sp.texture2DCount : self.textureCount;
+	GLuint texCubeMax = tex2DMax + (sp ? sp.textureCubeCount : 0);
+	
+	// Disable remaining unused 2D textures
+	for (GLuint tuIdx = _current2DTextureUnit; tuIdx < tex2DMax; tuIdx++)
+		[_gl disableTexturingAt: tuIdx];
+	
+	// Disable remaining unused cube textures
+	for (GLuint tuIdx = _currentCubeTextureUnit; tuIdx < texCubeMax; tuIdx++)
+		[_gl disableTexturingAt: tuIdx];
+	
+	// Ensure remaining system texture units are disabled
+	[_gl disableTexturingFrom: texCubeMax];
+}
+
+
+#pragma mark Accessing node contents
+
+-(ccColor4B) currentColor4B { return CCC4BFromCCC4F(self.currentColor); }
+
+-(void) setCurrentColor4B: (ccColor4B) color4B { self.currentColor = CCC4FFromCCC4B(color4B); }
+
+-(CC3SkinSection*) currentSkinSection { return _currentSkinSection; }
+
+-(void) setCurrentSkinSection: (CC3SkinSection*) currentSkinSection {
+	_currentSkinSection = currentSkinSection;
+	[self resetBoneMatrices];
+}
+
+
+#pragma mark Environmental matrices
+
+-(CC3Matrix4x4*) projMatrix { return &_projMatrix; }
+
+-(CC3Matrix4x3*) viewMatrix { return &_viewMatrix; }
+
+-(CC3Matrix4x3*) modelMatrix { return &_modelMatrix; }
+
+-(CC3Matrix4x3*) modelViewMatrix {
+	if (_isMVMtxDirty) {
+		CC3Matrix4x3Multiply(&_modelViewMatrix, &_viewMatrix, &_modelMatrix);
+		_isMVMtxDirty = NO;
+	}
+	return &_modelViewMatrix;
+}
+
+-(CC3Matrix4x4*) viewProjMatrix {
+	if (_isVPMtxDirty) {
+		CC3Matrix4x4 v4x4;
+		CC3Matrix4x4PopulateFrom4x3(&v4x4, &_viewMatrix);
+		CC3Matrix4x4Multiply(&_viewProjMatrix, &_projMatrix, &v4x4);
+		_isVPMtxDirty = NO;
+	}
+	return &_viewProjMatrix;
+}
+
+-(CC3Matrix4x4*) modelViewProjMatrix {
+	if (_isMVPMtxDirty) {
+		CC3Matrix4x4 m4x4;
+		CC3Matrix4x4PopulateFrom4x3(&m4x4, self.modelViewMatrix);
+		CC3Matrix4x4Multiply(&_modelViewProjMatrix, &_projMatrix, &m4x4);
+		_isMVPMtxDirty = NO;
+	}
+	return &_modelViewProjMatrix;
+}
+
+-(void) populateProjMatrixFrom: (CC3Matrix*) projMtx {
+	if ( !projMtx || _currentNode.shouldDrawInClipSpace)
+		CC3Matrix4x4PopulateIdentity(&_projMatrix);
+	else
+		[projMtx populateCC3Matrix4x4: &_projMatrix];
+
+	_isVPMtxDirty = YES;
+	_isMVPMtxDirty = YES;
+
+	// For fixed rendering pipeline, also load onto the matrix stack
+	[_gl loadProjectionMatrix: &_projMatrix];
+}
+
+-(void) populateViewMatrixFrom: (CC3Matrix*) viewMtx {
+	if ( !viewMtx || _currentNode.shouldDrawInClipSpace)
+		CC3Matrix4x3PopulateIdentity(&_viewMatrix);
+	else
+		[viewMtx populateCC3Matrix4x3: &_viewMatrix];
+	
+	_isVPMtxDirty = YES;
+	_isMVMtxDirty = YES;
+	_isMVPMtxDirty = YES;
+	
+	// For fixed rendering pipeline, also load onto the matrix stack
+	[_gl loadModelviewMatrix: &_viewMatrix];
+}
+
+-(void) populateModelMatrixFrom: (CC3Matrix*) modelMtx {
+	if ( !modelMtx )
+		CC3Matrix4x3PopulateIdentity(&_modelMatrix);
+	else
+		[modelMtx populateCC3Matrix4x3: &_modelMatrix];
+	
+	_isMVMtxDirty = YES;
+	_isMVPMtxDirty = YES;
+	
+	// For fixed rendering pipeline, also load onto the matrix stack
+	[_gl loadModelviewMatrix: self.modelViewMatrix];
+}
+
+-(CC3Matrix4x3*) globalBoneMatrixAt: (GLuint) index {
+	[self ensureBoneMatrices: _boneMatricesGlobal forSpace: self.modelMatrix];
+	return [_boneMatricesGlobal elementAt: index];
+}
+
+-(CC3Matrix4x3*) eyeSpaceBoneMatrixAt: (GLuint) index {
+	[self ensureBoneMatrices: _boneMatricesEyeSpace forSpace: self.modelViewMatrix];
+	return [_boneMatricesEyeSpace elementAt: index];
+}
+
+-(CC3Matrix4x3*) modelSpaceBoneMatrixAt: (GLuint) index {
+	[self ensureBoneMatrices: _boneMatricesModelSpace forSpace: NULL];
+	return [_boneMatricesModelSpace elementAt: index];
+}
+
+/**
+ * Ensures that the specified bone matrix array has been populated from the bones of the
+ * current skin section. If the specified space matrix is not NULL, it is used to transform
+ * the bone matrices into some other space (eg- global space, eye space), otherwise, the
+ * bone matrices are left in their local space coordinates (model space).
+ * Once populated, the bone matrix array is marked as being ready, so it won't be populated
+ * again until being marked as not ready.
+ */
+-(void) ensureBoneMatrices: (CC3DataArray*) boneMatrices forSpace: (CC3Matrix4x3*) spaceMatrix {
+	if (boneMatrices.isReady) return;
+	
+	CC3Matrix4x3 sbMtx;
+	CC3SkinSection* skin = self.currentSkinSection;
+	GLuint boneCnt = skin.boneCount;
+	[boneMatrices ensureElementCapacity: boneCnt];
+	for (GLuint boneIdx = 0; boneIdx < boneCnt; boneIdx++) {
+		CC3Matrix* boneMtx = [skin transformMatrixForBoneAt: boneIdx];
+		CC3Matrix4x3* pBoneSpaceMtx = [boneMatrices elementAt: boneIdx];
+		if (spaceMatrix) {
+			// Use the space matrix to transform the bone matrix.
+			[boneMtx populateCC3Matrix4x3: &sbMtx];
+			CC3Matrix4x3Multiply(pBoneSpaceMtx, spaceMatrix, &sbMtx);
+		} else
+			[boneMtx populateCC3Matrix4x3: pBoneSpaceMtx];	// Use the untransformed bone matrix.
+	}
+	boneMatrices.isReady = YES;
+}
+
+/** Resets the bone matrices so they will be populated when requested for the current skin section. */
+-(void) resetBoneMatrices {
+	_boneMatricesGlobal.isReady = NO;
+	_boneMatricesEyeSpace.isReady = NO;
+	_boneMatricesModelSpace.isReady = NO;
+}
+
+
+#pragma mark Allocation and initialization
+
+-(id) init {
+	if ( (self = [super init]) ) {
+		_renderSurface = nil;
+		_drawingSequencer = nil;
+		_currentSkinSection = nil;
+		_boneMatricesGlobal = [[CC3DataArray alloc] initWithElementSize: sizeof(CC3Matrix4x3)];	// retained
+		_boneMatricesEyeSpace = [[CC3DataArray alloc] initWithElementSize: sizeof(CC3Matrix4x3)];	// retained
+		_boneMatricesModelSpace = [[CC3DataArray alloc] initWithElementSize: sizeof(CC3Matrix4x3)];	// retained
+		CC3Matrix4x3PopulateIdentity(&_modelMatrix);
+		CC3Matrix4x3PopulateIdentity(&_viewMatrix);
+		CC3Matrix4x4PopulateIdentity(&_projMatrix);
+		_isVPMtxDirty = YES;
+		_isMVMtxDirty = YES;
+		_isMVPMtxDirty = YES;
+		_shouldDecorateNode = YES;
+		_isDrawingEnvironmentMap = NO;
+	}
+	return self;
+}
+
 -(NSString*) fullDescription {
-	return [NSString stringWithFormat: @"%@, drawing nodes in seq %@, tex: %i of %i units, decorating: %@, clear depth: %@",
-			[super fullDescription], drawingSequencer, textureUnit, textureUnitCount,
-			NSStringFromBoolean(shouldDecorateNode), NSStringFromBoolean(shouldClearDepthBuffer)];
+	return [NSString stringWithFormat: @"%@, drawing %@nodes in seq %@", [super fullDescription],
+			(_shouldDecorateNode ? @"and decorating " : @""), _drawingSequencer];
 }
 
 @end
@@ -460,100 +747,55 @@
 #pragma mark -
 #pragma mark CC3NodePickingVisitor
 
-@interface CC3NodePickingVisitor (TemplateMethods)
--(void) paintNode: (CC3Node*) aNode;
--(ccColor4B) colorFromNodeTag: (GLuint) tag;
--(GLuint) tagFromColor: (ccColor4B) color;
--(void) drawBackdrop;
-@end
-
 @implementation CC3NodePickingVisitor
 
-@synthesize pickedNode;
-
--(void) dealloc {
-	[pickedNode release];
-	[super dealloc];
-}
-
--(CC3Scene*) scene { return (CC3Scene*)startingNode; }
+@synthesize pickedNode=_pickedNode, tagColorShift=_tagColorShift;
 
 /** Overridden to initially set the shouldDecorateNode to NO. */
 -(id) init {
 	if ( (self = [super init]) ) {
-		shouldDecorateNode = NO;
+		_pickedNode = nil;
+		_shouldDecorateNode = NO;
+		_tagColorShift = 0;
 	}
 	return self;
 }
 
-/**
- * Clears the pickedNode property, ensures that lighting, blending, and fog are turned off,
- * so that nodes can be drawn in pure colors, and remembers the current color value so that
- * is can be restored after picking. This is necessary when the scene has no lighting, to
- * avoid flicker on materials and textures.
- * 
- * Superclass implementation also clears the depth buffer so that the real drawing pass
- * will have a clear depth buffer. Otherwise, pixels from farther objects will not be drawn,
- * since the  nearer objects were already drawn during color picking. This would be a problem
- * if the nearer object is translucent, because we expect to see some of the farther object
- * show through the translucent object. The result would be a noticable flicker in the nearer
- * translucent object.
- *
- * If multisampling antialiasing is being used, we must use a different framebuffer,
- * since the multisampling framebuffer does not support pixel reading.
- */
+/** Clears the render surface and the pickedNode property. */
 -(void) open {
 	[super open];
-	
-	[pickedNode release];
-	pickedNode = nil;
-	
-	CC3OpenGLES11Engine* gles11Engine = [CC3OpenGLES11Engine engine];
-	
-	CC3OpenGLES11ServerCapabilities* gles11ServCaps = gles11Engine.serverCapabilities;
-	[gles11ServCaps.lighting disable];
-	[gles11ServCaps.blend disable];
-	[gles11ServCaps.fog disable];
-	
-	originalColor = gles11Engine.state.color.value;
-	
-	// If multisampling antialiasing, bind the picking framebuffer before reading the pixel.
-	[[CCDirector sharedDirector].openGLView openPicking];
+	[self.renderSurface clearColorAndDepthContent];
+	_pickedNode = nil;
 }
 
 /**
  * Reads the color of the pixel at the touch point, maps that to the tag of the CC3Node
  * that was touched, and sets the picked node in the pickedNode property.
  *
- * If antialiasing multisampling is active, after reading the color of the touched pixel,
- * the multisampling framebuffer is made active in preparation of normal drawing operations.
- *
- * Also restores the original GL color value, to avoid flicker on materials and textures
- * if the scene has no lighting.
+ * Clears the depth buffer in case the primary scene rendering is using the same surface.
  */
 -(void) close {
-	CC3OpenGLES11State* gles11State = [CC3OpenGLES11Engine engine].state;
 		
 	// Read the pixel from the framebuffer
-	ccColor4B pixColor = [gles11State readPixelAt: self.scene.touchedNodePicker.glTouchPoint];
+	ccColor4B pixColor;
+	CC3IntPoint touchPoint = CC3IntPointFromCGPoint([self.camera glPointFromCC2Point: self.scene.touchedNodePicker.touchPoint]);
+	[self.renderSurface readColorContentFrom: CC3ViewportMake(touchPoint.x, touchPoint.y, 1, 1) into: &pixColor];
 	
 	// Fetch the node whose tags is mapped from the pixel color
-	pickedNode = [[self.scene getNodeTagged: [self tagFromColor: pixColor]] retain];
-	
-	LogTrace(@"%@ picked %@ from color (%u, %u, %u, %u)", self, pickedNode,
-			 pixColor.r, pixColor.g, pixColor.b, pixColor.a);
-	
-	// If multisampling antialiasing, rebind the multisampling framebuffer
-	[[CCDirector sharedDirector].openGLView closePicking];
-	
-	[self drawBackdrop];	// Draw the backdrop behind the 3D scene
+	_pickedNode = [self.scene getNodeTagged: [self tagFromColor: pixColor]];
 
-	gles11State.color.value = originalColor;
+	LogTrace(@"%@ picked %@ from color %@ at position %@", self, _pickedNode,
+			 NSStringFromCCC4B(pixColor), NSStringFromCC3IntPoint(touchPoint));
+	
+	[self.renderSurface clearDepthContent];
+
 	[super close];
 }
 
 
 #pragma mark Drawing
+
+-(id<CC3RenderSurface>) defaultRenderSurface { return self.scene.pickingSurface; }
 
 /**
  * Overridden because what matters here is not visibility, but touchability.
@@ -567,105 +809,24 @@
 	[super draw: aNode];
 }
 
-/**
- * Template method that draws the backdrop behind the 3D scene.
- *
- * This method is automatically invoked after the 3D scene has been drawn in pure solid colors, and
- * prior to the second redrawing with the true coloring, to provide an empty canvas on which to draw
- * the real scene, and to make sure that the depth buffer is cleared before the second redrawing.
- *
- * This implementation simply clears the GL color buffer to create an empty canvas. If the CC3Layer
- * has a colored background, that color is used to clear the GL color buffer, otherwise the current
- * GL clearing color is used.
- *
- * To minimize flicker, if the background is translucent, the color buffer is not cleared.
- *
- * In addition, the depth buffer needs to be cleared in between drawing the pure colors for node picking,
- * and drawing the real scene, to ensure that the the two passes do not interfere with each other, which
- * would cause flicker. To that end, if this visitor is configured NOT to clear the depth buffer at the
- * start of each drawing pass, the depth buffer is cleared here when the color buffer is cleared.
- *
- * This use of clearing the color buffer, instead of redrawing the CC3Layer backdrop, is used because
- * redrawing the CC3Layer involves delving back into the 2D scene, and losing knowledge of the GL state.
- *
- * Subclasses can override to do something more sophisticated with the background.
- */
--(void) drawBackdrop {
-	CC3OpenGLES11State* gles11State = [CC3OpenGLES11Engine engine].state;
-	CC3Layer* cc3Layer = self.scene.cc3Layer;
-	
-	// Only clear the color if the layer is opaque. This is to stop flicker
-	// of the background if it is translucent. Unfortunately, flicker WILL occur
-	// if BOTH the object and the CC3Layer background are translucent.
-	GLbitfield colorFlag = cc3Layer.isOpaque ? GL_COLOR_BUFFER_BIT : 0;
-	
-	// If the depth buffer will not be cleared as part of normal drawing,
-	// do it now, while we are clearing the color buffer.
-	GLbitfield depthFlag = shouldClearDepthBuffer ? 0 : GL_DEPTH_BUFFER_BIT;
-
-	// Ensure that the depth buffer is writable (may have been turned off during node drawing)
-	if (depthFlag) gles11State.depthMask.value = YES;
-	
-	// If the CC3Layer has a background color, use it as the GL clear color
-	if (colorFlag) {
-		if (cc3Layer.isColored) {
-			// Remember the current GL clear color
-			ccColor4F currClearColor = gles11State.clearColor.value;
-			
-			// Retrieve the CC3Layer background color
-			ccColor4F layerColor = CCC4FFromColorAndOpacity(cc3Layer.color, cc3Layer.opacity);
-			
-			// Set the GL clear color from the layer color
-			gles11State.clearColor.value = layerColor;
-			LogTrace(@"%@ clearing background to %@ color: %@ %@ clearing depth buffer to %.3f", self,
-					 cc3Layer, NSStringFromCCC4F(layerColor), (depthFlag ? @"and" : @"but not"),
-					 gles11State.clearDepth.value);
-			
-			// Clear the color buffer redraw the background, and depth buffer if required
-			[gles11State clearBuffers: (colorFlag | depthFlag)];
-			
-			// Reinstate the current GL clear color
-			gles11State.clearColor.value = currClearColor;
-			
-		} else {
-			// Otherwise use the current clear color
-			LogTrace(@"%@ clearing background to default clear color: %@ %@ clearing depth buffer to %.3f",
-					 self, NSStringFromCCC4F(gles11State.clearColor.value),
-					 (depthFlag ? @"and" : @"but not"), gles11State.clearDepth.value);
-			
-			// Clear the color buffer redraw the background, and depth buffer if required
-			[gles11State clearBuffers: (colorFlag | depthFlag)];
-		}
-	} else if (depthFlag) {
-		LogTrace(@"%@ clearing depth buffer", self);
-		[gles11State clearBuffers: depthFlag];		// Clear the depth buffer only
-	} else {
-		LogTrace(@"%@ clearing neither color or depth buffer", self);
-	}
-}
-
 /** Maps the specified node to a unique color, and paints the node with that color. */
 -(void) paintNode: (CC3Node*) aNode {
-	ccColor4B color = [self colorFromNodeTag: aNode.tag];
-	[CC3OpenGLES11Engine engine].state.color.fixedValue = color;
-	LogTrace(@"%@ painting %@ with color (%u, %u, %u, %u)",
-			 self, aNode, color.r, color.g, color.b, color.a);
+	self.currentColor4B = [self colorFromNodeTag: aNode.tag];
+	LogTrace(@"%@ painting %@ with color %@", self, aNode, NSStringFromCCC4B(self.currentColor4B));
 }
 
 /**
  * Maps the specified integer tag to a color, by spreading the bits of the integer across
  * the red, green and blue unsigned bytes of the color. This permits 2^24 objects to be
- * encoded by colors. This is the compliment of the tagFromColor: method. The alpha value
- * is set to zero to ensure that the painting is not visible under translucent nodes,
- * especially when translucent nodes are directly painted over the device camera.
+ * encoded by colors. This is the compliment of the tagFromColor: method.
  */
 -(ccColor4B) colorFromNodeTag: (GLuint) tag {
+	tag <<= _tagColorShift;
 	GLuint mask = 255;
 	GLubyte r = (tag >> 16) & mask;
 	GLubyte g = (tag >> 8) & mask;
 	GLubyte b = tag & mask;
-	return ccc4(r, g, b, 0);	// Zero alpha to ensure coloring is not visible
-	
+	return ccc4(r, g, b, 0);	// Alpha ignored during pure-color painting
 }
 
 /**
@@ -673,12 +834,11 @@
  * colors into a single integer value. This is the compliment of the colorFromNodeTag: method.
  */
 -(GLuint) tagFromColor: (ccColor4B) color {
-	return ((GLuint)color.r << 16) | ((GLuint)color.g << 8) | (GLuint)color.b;
+	return (((GLuint)color.r << 16) | ((GLuint)color.g << 8) | (GLuint)color.b) >> _tagColorShift;
 }
 
 -(NSString*) fullDescription {
-	return [NSString stringWithFormat: @"%@, picked: %@, orig color: %@",
-			[super fullDescription], pickedNode, NSStringFromCCC4F(originalColor)];
+	return [NSString stringWithFormat: @"%@, picked: %@", super.fullDescription, _pickedNode];
 }
 
 @end
@@ -687,65 +847,26 @@
 #pragma mark -
 #pragma mark CC3NodePuncture
 
-/** Helper class for CC3NodePuncturingVisitor that tracks a node and the location of its puncture. */
-@interface CC3NodePuncture : NSObject {
-	CC3Node* node;
-	CC3Vector punctureLocation;
-	CC3Vector globalPunctureLocation;
-	float sqGlobalPunctureDistance;
-}
-
-/** The punctured node. */
-@property(nonatomic, retain, readonly) CC3Node* node;
-
-/** The location of the puncture, in the local coordinate system of the punctured node. */
-@property(nonatomic, readonly) CC3Vector punctureLocation;
-
-/** The location of the puncture, in the global coordinate system. */
-@property(nonatomic, readonly) CC3Vector globalPunctureLocation;
-
-/**
- * The square of the distance from the startLocation of the ray to the puncture.
- * This is used to sort the punctures by distance from the start of the ray.
- */
-@property(nonatomic, readonly) float sqGlobalPunctureDistance;
-
-
-#pragma mark Allocation and initialization
-
-/** Initializes this instance with the specified node and ray. */
--(id) initOnNode: (CC3Node*) aNode fromRay: (CC3Ray) aRay;
-
-/** Allocates and initializes an autoreleased instance with the specified node and ray. */
-+(id) punctureOnNode: (CC3Node*) aNode fromRay: (CC3Ray) aRay;
-
-@end
-
-
 @implementation CC3NodePuncture
 
-@synthesize node, punctureLocation, globalPunctureLocation, sqGlobalPunctureDistance;
-
--(void) dealloc {
-	[node release];
-	[super dealloc];
-}
+@synthesize node=_node, sqGlobalPunctureDistance=_sqGlobalPunctureDistance;
+@synthesize punctureLocation=_punctureLocation, globalPunctureLocation=_globalPunctureLocation;
 
 
 #pragma mark Allocation and initialization
 
 -(id) initOnNode: (CC3Node*) aNode fromRay: (CC3Ray) aRay {
 	if ( (self = [super init]) ) {
-		node = [aNode retain];
-		punctureLocation = [aNode locationOfGlobalRayIntesection: aRay];
-		globalPunctureLocation = [aNode.transformMatrix transformLocation: punctureLocation];
-		sqGlobalPunctureDistance = CC3VectorDistanceSquared(globalPunctureLocation, aRay.startLocation);
+		_node = aNode;
+		_punctureLocation = [aNode locationOfGlobalRayIntesection: aRay];
+		_globalPunctureLocation = [aNode.globalTransformMatrix transformLocation: _punctureLocation];
+		_sqGlobalPunctureDistance = CC3VectorDistanceSquared(_globalPunctureLocation, aRay.startLocation);
 	}
 	return self;
 }
 
 +(id) punctureOnNode: (CC3Node*) aNode fromRay: (CC3Ray) aRay {
-	return [[[self alloc] initOnNode: aNode fromRay: aRay] autorelease];
+	return [[self alloc] initOnNode: aNode fromRay: aRay];
 }
 
 @end
@@ -756,18 +877,14 @@
 
 @implementation CC3NodePuncturingVisitor
 
-@synthesize ray, shouldPunctureFromInside, shouldPunctureInvisibleNodes;
-
--(void) dealloc {
-	[nodePunctures release];
-	[super dealloc];
-}
+@synthesize ray=_ray, shouldPunctureFromInside=_shouldPunctureFromInside;
+@synthesize shouldPunctureInvisibleNodes=_shouldPunctureInvisibleNodes;
 
 -(CC3NodePuncture*) nodePunctureAt:  (NSUInteger) index {
-	return (CC3NodePuncture*)[nodePunctures objectAtIndex: index];
+	return (CC3NodePuncture*)[_nodePunctures objectAtIndex: index];
 }
 
--(NSUInteger) nodeCount { return nodePunctures.count; }
+-(NSUInteger) nodeCount { return _nodePunctures.count; }
 
 -(CC3Node*) puncturedNodeAt: (NSUInteger) index { return [self nodePunctureAt: index].node; }
 
@@ -791,35 +908,37 @@
 
 -(void) open {
 	[super open];
-	[nodePunctures removeAllObjects];
+	[_nodePunctures removeAllObjects];
 }
 
 /**
  * Utility method that returns whether the specified node is punctured by the ray.
  *   - Returns NO if the node has no bounding volume.
- *   - Returns NO if the ray starts within the bounding volume, unless the
+ *   - Returns NO if the node is invisible, unless the shouldPunctureInvisibleNodes property
+ *     has been set to YES.
+ *   - Returns NO if the ray starts within the bounding volume, unless the 
  *     shouldPunctureFromInside property has been set to YES.
  */
 -(BOOL) doesPuncture: (CC3Node*) aNode {
 	CC3BoundingVolume* bv = aNode.boundingVolume;
 	if ( !bv ) return NO;
-	if ( !shouldPunctureInvisibleNodes && !aNode.visible ) return NO;
-	if ( !shouldPunctureFromInside && [bv doesIntersectLocation: ray.startLocation] ) return NO;
-	return [bv doesIntersectRay: ray];
+	if ( !_shouldPunctureInvisibleNodes && !aNode.visible ) return NO;
+	if ( !_shouldPunctureFromInside && [bv doesIntersectLocation: _ray.startLocation] ) return NO;
+	return [bv doesIntersectRay: _ray];
 }
 
 -(void) processBeforeChildren: (CC3Node*) aNode {
 	if ( [self doesPuncture: aNode] ) {
-		CC3NodePuncture* np = [CC3NodePuncture punctureOnNode: aNode fromRay: ray];
-		NSUInteger nodeCount = nodePunctures.count;
+		CC3NodePuncture* np = [CC3NodePuncture punctureOnNode: aNode fromRay: _ray];
+		NSUInteger nodeCount = _nodePunctures.count;
 		for (NSUInteger i = 0; i < nodeCount; i++) {
-			CC3NodePuncture* existNP = [nodePunctures objectAtIndex: i];
+			CC3NodePuncture* existNP = [_nodePunctures objectAtIndex: i];
 			if (np.sqGlobalPunctureDistance < existNP.sqGlobalPunctureDistance) {
-				[nodePunctures insertObject: np atIndex: i];
+				[_nodePunctures insertObject: np atIndex: i];
 				return;
 			}
 		}
-		[nodePunctures addObject: np];
+		[_nodePunctures addObject: np];
 	}
 }
 
@@ -829,16 +948,14 @@
 
 -(id) initWithRay: (CC3Ray) aRay {
 	if ( (self = [super init]) ) {
-		ray = aRay;
-		nodePunctures = [[CCArray array] retain];
-		shouldPunctureFromInside = NO;
-		shouldPunctureInvisibleNodes = NO;
+		_ray = aRay;
+		_nodePunctures = [NSMutableArray array];
+		_shouldPunctureFromInside = NO;
+		_shouldPunctureInvisibleNodes = NO;
 	}
 	return self;
 }
 
-+(id) visitorWithRay: (CC3Ray) aRay {
-	return [[[self alloc] initWithRay: aRay] autorelease];
-}
++(id) visitorWithRay: (CC3Ray) aRay { return [[self alloc] initWithRay: aRay]; }
 
 @end

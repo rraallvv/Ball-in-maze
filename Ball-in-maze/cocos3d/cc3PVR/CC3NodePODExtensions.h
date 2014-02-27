@@ -1,9 +1,9 @@
 /*
  * CC3NodePODExtensions.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -54,7 +54,7 @@
  * variable, and always returns kCC3PODNilIndex. Concrete subclasses must
  * override to map to an actual instance variable.
  */
-@property(nonatomic, assign) int podContentIndex;
+@property(nonatomic, assign) GLint podContentIndex;
 
 /**
  * The index of the parent node of this node.
@@ -64,7 +64,7 @@
  * variable, and always returns kCC3PODNilIndex. Concrete subclasses must
  * override to map to an actual instance variable.
  */
-@property(nonatomic, assign) int podParentIndex;
+@property(nonatomic, assign) GLint podParentIndex;
 
 /**
  * The index of the node that is the target of this node.
@@ -74,7 +74,10 @@
  * variable, and always returns kCC3PODNilIndex. Concrete subclasses must
  * override to map to an actual instance variable.
  */
-@property(nonatomic, assign) int podTargetIndex;
+@property(nonatomic, assign) GLint podTargetIndex;
+
+/** @deprecated The user data loaded from the POD file is now held in the userData property as an NSData instance. */
+@property(nonatomic, assign) GLuint podUserDataSize DEPRECATED_ATTRIBUTE;
 
 /** Indicates whether this POD is a base node, meaning that it has no parent. */
 @property(nonatomic, readonly) BOOL isBasePODNode;
@@ -86,7 +89,7 @@
  * Allocates and initializes an autoreleased instance from the data of
  * this type at the specified index within the specified POD resource.
  */
-+(id) nodeAtIndex: (int) aPODIndex fromPODResource: (CC3PODResource*) aPODRez;
++(id) nodeAtIndex: (GLint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez;
 
 /**
  * Returns the underlying SPODNode data structure from the specified resource,
@@ -95,7 +98,7 @@
  * The returned pointer must be cast to SPODNode before accessing any internals
  * of the data structure.
  */
--(PODStructPtr) nodePODStructAtIndex: (uint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez;
+-(PODStructPtr) nodePODStructAtIndex: (GLuint) aPODIndex fromPODResource: (CC3PODResource*) aPODRez;
 
 /**
  * Create links to the nodes in the specified array.
@@ -103,13 +106,18 @@
  * This implementation attaches this node to its parent as identified by the
  * podParentIndex property. Subclasses may override to perform other linking.
  */
--(void) linkToPODNodes: (CCArray*) nodeArray;
+-(void) linkToPODNodes: (NSArray*) nodeArray;
 
 @end
 
 
 #pragma mark -
 #pragma mark CC3PODNodeAnimation
+
+// The stride for each type of animation content
+#define kPODAnimationLocationStride 3
+#define kPODAnimationQuaternionStride 4
+#define kPODAnimationScaleStride 7
 
 /** 
  * POD files can contain information to animate the nodes.
@@ -118,15 +126,12 @@
  * when the establishAnimationFrameAt: method is invoked on the node.
  */
 @interface CC3PODNodeAnimation : CC3NodeAnimation {
-
-	GLuint* animatedLocationIndices;
-	GLfloat* animatedLocations;			// 3 floats per frame of animation.
-	
-	GLuint* animatedQuaternionsIndices;
-	GLfloat* animatedQuaternions;		// 4 floats per frame of animation.
-	
-	GLuint* animatedScaleIndices;
-	GLfloat* animatedScales;			// 7 floats per frame of animation.
+	GLuint* _animatedLocationIndices;
+	GLfloat* _animatedLocations;			// 3 floats per frame of animation.
+	GLuint* _animatedQuaternionsIndices;
+	GLfloat* _animatedQuaternions;			// 4 floats per frame of animation.
+	GLuint* _animatedScaleIndices;
+	GLfloat* _animatedScales;				// 7 floats per frame of animation.
 }
 
 /**

@@ -1,9 +1,9 @@
 /*
  * CC3Material.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2010-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2010-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -32,24 +32,29 @@
 #import "CC3Texture.h"
 #import "CCProtocols.h"
 #import "CC3NodeVisitor.h"
+#import "CC3ShaderContext.h"
+
 
 /** Default material color under ambient lighting. */
-static const ccColor4F kCC3DefaultMaterialColorAmbient = { 0.2, 0.2, 0.2, 1.0 };
+static const ccColor4F kCC3DefaultMaterialColorAmbient = { 0.2f, 0.2f, 0.2f, 1.0f };
 
 /** Default material color under diffuse lighting. */
-static const ccColor4F kCC3DefaultMaterialColorDiffuse = { 0.8, 0.8, 0.8, 1.0 };
+static const ccColor4F kCC3DefaultMaterialColorDiffuse = { 0.8f, 0.8f, 0.8f, 1.0f };
 
 /** Default material color under specular lighting. */
-static const ccColor4F kCC3DefaultMaterialColorSpecular = { 0.0, 0.0, 0.0, 1.0 };
+static const ccColor4F kCC3DefaultMaterialColorSpecular = { 0.0f, 0.0f, 0.0f, 1.0f };
 
 /** Default emissive material color. */
-static const ccColor4F kCC3DefaultMaterialColorEmission = { 0.0, 0.0, 0.0, 1.0 };
+static const ccColor4F kCC3DefaultMaterialColorEmission = { 0.0f, 0.0f, 0.0f, 1.0f };
 
 /** Default material shininess. */
-static const GLfloat kCC3DefaultMaterialShininess = 0.0;
+static const GLfloat kCC3DefaultMaterialShininess = 0.0f;
 
 /** Maximum material shininess allowed by OpenGL ES. */
-static const GLfloat kCC3MaximumMaterialShininess = 128.0;
+static const GLfloat kCC3MaximumMaterialShininess = 128.0f;
+
+/** Default material reflectivity. */
+static const GLfloat kCC3DefaultMaterialReflectivity = 0.0f;
 
 
 #pragma mark -
@@ -112,21 +117,23 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * Each texture unit combines its texture with the output of the previous texture unit
  * in the chain. Combining textures is quite flexible under OpenGL, and there are many
  * ways that each texture can be combined with the output of the previous texture unit.
- * The way that a particular texture combines with the previous textures is defined by
- * an instance of CC3TextureUnit, held in the textureUnit property of each texture that
- * was added to the material.
  *
- * For example, to configure a material for bump-mapping, add a texture that contains a
- * normal vector at each pixel instead of a color, and set the textureUnit property of
- * the texture to a CC3BumpMapTextureUnit. You can then combine the output of this
- * bump-mapping with an additional texture that contains the image that will be visible,
- * to provide a detailed 3D bump-mapped surface. To do so, add that second texture to
- * the material, with a texture unit that defines how that addtional texture is to be
- * combined with the output of the bump-mapped texture.
+ * Under fixed-pipeline rendering, such as with OpenGL ES 1.1, the way that a particular
+ * texture combines with the previous textures is defined by an instance of CC3TextureUnit,
+ * held in the textureUnit property of each texture that was added to the material.
+ * To support a texture unit, the texture must be of type CC3TextureUnitTexture.
  *
- * The maximum number of texture units is platform dependent, and can be read from
- * [CC3OpenGLES11Engine engine].platform.maxTextureUnits.value. This effectively defines
- * how many textures you can add to a material.
+ * For example, to configure a material for bump-mapping, add a CC3TextureUnitTexture
+ * instance that contains a normal vector at each pixel instead of a color, and set the
+ * textureUnit property of the texture to a CC3BumpMapTextureUnit. You can then combine 
+ * the output of this bump-mapping with an additional texture that contains the image
+ * that will be visible, to provide a detailed 3D bump-mapped surface. To do so, add that
+ * second texture to the material, with a texture unit that defines how that addtional
+ * texture is to be combined with the output of the bump-mapped texture.
+ *
+ * The maximum number of texture units is platform dependent, and can be read from the
+ * CC3OpenGL.sharedGL.maxNumberOfTextureUnits property. This effectively defines how many
+ * textures you can add to a material.
  *
  * You'll notice that there are two ways to assign textures to a material: through the
  * texture propety, and through the addTexture: method. The texture property exists for
@@ -159,17 +166,20 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * which improves performance. 
  */
 @interface CC3Material : CC3Identifiable <CCRGBAProtocol, CCBlendProtocol> {
-	CC3Texture* texture;
-	CCArray* textureOverlays;
-	ccColor4F ambientColor;
-	ccColor4F diffuseColor;
-	ccColor4F specularColor;
-	ccColor4F emissionColor;
-	GLfloat shininess;
-	GLenum alphaTestFunction;
-	GLfloat alphaTestReference;
-	ccBlendFunc blendFunc;
-	BOOL shouldUseLighting : 1;
+	CC3Texture* _texture;
+	NSMutableArray* _textureOverlays;
+	ccColor4F _ambientColor;
+	ccColor4F _diffuseColor;
+	ccColor4F _specularColor;
+	ccColor4F _emissionColor;
+	GLfloat _shininess;
+	GLfloat _reflectivity;
+	GLenum _alphaTestFunction;
+	GLfloat _alphaTestReference;
+	ccBlendFunc _blendFuncRGB;
+	ccBlendFunc _blendFuncAlpha;
+	BOOL _shouldUseLighting : 1;
+	BOOL _shouldBlendAtFullOpacity : 1;
 }
 
 /**
@@ -226,12 +236,68 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
 @property(nonatomic, assign) ccColor4F emissionColor;
 
 /**
+ * The ambient colour currently used by this material during rendering.
+ *
+ * The value of this property is influenced by the value of the shouldApplyOpacityToColor property.
+ * If the shouldApplyOpacityToColor property is set to YES, this property scales each of the red,
+ * green & blue componenents of the ambientColor property by its alpha component and returns the
+ * result. Otherwise, this property returns the unaltered value of the ambientColor property.
+ */
+@property(nonatomic, readonly) ccColor4F effectiveAmbientColor;
+
+/**
+ * The diffuse colour currently used by this material during rendering.
+ *
+ * The value of this property is influenced by the value of the shouldApplyOpacityToColor property.
+ * If the shouldApplyOpacityToColor property is set to YES, this property scales each of the red,
+ * green & blue componenents of the diffuseColor property by its alpha component and returns the
+ * result. Otherwise, this property returns the unaltered value of the diffuseColor property.
+ */
+@property(nonatomic, readonly) ccColor4F effectiveDiffuseColor;
+
+/**
+ * The specular colour currently used by this material during rendering.
+ *
+ * The value of this property is influenced by the value of the shouldApplyOpacityToColor property.
+ * If the shouldApplyOpacityToColor property is set to YES, this property scales each of the red,
+ * green & blue componenents of the specularColor property by its alpha component and returns the
+ * result. Otherwise, this property returns the unaltered value of the specularColor property.
+ */
+@property(nonatomic, readonly) ccColor4F effectiveSpecularColor;
+
+/**
+ * The emission colour currently used by this material during rendering.
+ *
+ * The value of this property is influenced by the value of the shouldApplyOpacityToColor property.
+ * If the shouldApplyOpacityToColor property is set to YES, this property scales each of the red,
+ * green & blue componenents of the emissionColor property by its alpha component and returns the
+ * result. Otherwise, this property returns the unaltered value of the emissionColor property.
+ */
+@property(nonatomic, readonly) ccColor4F effectiveEmissionColor;
+
+/**
  * The shininess of this material.
  * 
- * This value is clamped to between zero and kCC3MaximumMaterialShininess.
- * Initially set to kCC3DefaultMaterialShininess.
+ * The value of this property is clamped to between zero and kCC3MaximumMaterialShininess.
+ * The initial value of this property is kCC3DefaultMaterialShininess (zero).
  */
 @property(nonatomic, assign) GLfloat shininess;
+
+/**
+ * The reflectivity of this material.
+ *
+ * This property can be used when the material is covered by an environmental reflection cube-map
+ * texture to indicate the weighting that should be applied to the reflection texture, relative to
+ * any other textures on the material. A value of zero indicates that the surface should be 
+ * completely unreflective, and a value of one indicates that the surface is entirely reflective.
+ *
+ * This property requires a programmable pipeline and has no effect when running OpenGL ES 1.1
+ * on iOS, or a fixed rendering pipeline when running OpenGL on OSX.
+ *
+ * The value of this property is clamped to between zero and one.
+ * The initial value of this property is kCC3DefaultMaterialReflectivity (zero).
+ */
+@property(nonatomic, assign) GLfloat reflectivity;
 
 /**
  * The blending function to be applied to the source material (this material). This property must
@@ -260,11 +326,16 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * with a pre-multiplied alpha channel, set sourceBlend to GL_ONE, so that the pre-multiplied alpha of
  * the source will blend with the destination correctly.
  *
- * Opaque materials can be managed slightly more efficiently than translucent materials. If a material
- * really does not allow other materials to be seen behind it, you should ensure that the sourceBlend
- * and destinationBlend properties are set to GL_ONE and GL_ZERO, respectively, to optimize rendering
+ * Opaque materials can be managed more efficiently than translucent materials. If a material really
+ * does not allow other materials to be seen behind it, you should ensure that the sourceBlend and
+ * destinationBlend properties are set to GL_ONE and GL_ZERO, respectively, to optimize rendering
  * performance. The performance improvement is small, but can add up if a large number of opaque
  * objects are rendered as if they were translucent.
+ *
+ * Materials support different using blending functions for the RGB components and the alpha component.
+ * To set separate source blend values for RGB and alpha, use the sourceBlendRGB and sourceBlendAlpha
+ * properties instead. Setting this property sets the sourceBlendRGB and sourceBlendAlpha properties
+ * to the same value. Querying this property returns the value of the sourceBlendRGB property.
  *
  * The initial value is determined by the value of the class-side property
  * defaultBlendFunc, which can be modified by the setDefaultBlendFunc: method.
@@ -289,16 +360,70 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * alpha below one, or by covering this material with a texture that contains an alpha channel
  * (including a pre-multiplied alpha channel), set the destinationBlend to GL_ONE_MINUS_SRC_ALPHA.
  *
- * Opaque materials can be managed slightly more efficiently than translucent materials. If a material
- * really does not allow other materials to be seen behind it, you should ensure that the sourceBlend
- * and destinationBlend properties are set to GL_ONE and GL_ZERO, respectively, to optimize rendering
+ * Opaque materials can be managed more efficiently than translucent materials. If a material really
+ * does not allow other materials to be seen behind it, you should ensure that the sourceBlend and
+ * destinationBlend properties are set to GL_ONE and GL_ZERO, respectively, to optimize rendering
  * performance. The performance improvement is small, but can add up if a large number of opaque
  * objects are rendered as if they were translucent.
+ *
+ * Materials support different using blending functions for the RGB components and the alpha component.
+ * To set separate destination blend values for RGB and alpha, use the destinationBlendRGB and 
+ * destinationBlendAlpha properties instead. Setting this property sets the destinationBlendRGB and
+ * destinationBlendAlpha properties to the same value. Querying this property returns the value of
+ * the destinationBlendRGB property.
  *
  * The initial value is determined by the value of the class-side property
  * defaultBlendFunc, which can be modified by the setDefaultBlendFunc: method.
  */
 @property(nonatomic, assign) GLenum destinationBlend;
+
+/**
+ * The blending function to be applied to the RGB components of the source material (this material).
+ * This property must be set to one of the valid GL blending functions.
+ *
+ * In conjunction with the sourceBlendAlpha property, this property allows the RGB blending and
+ * alpha blending to be specified separately. Alternately, you can use the sourceBlend property
+ * to set both RGB and alpha blending functions to the same value.
+ *
+ * See the notes of the sourceBlend property for more information about material blending.
+ */
+@property(nonatomic, assign) GLenum sourceBlendRGB;
+
+/**
+ * The blending function to be applied to the RGB components of the destination material.
+ * This property must be set to one of the valid GL blending functions.
+ *
+ * In conjunction with the destinationBlendAlpha property, this property allows the RGB blending 
+ * and alpha blending to be specified separately. Alternately, you can use the destinationBlend
+ * property to set both RGB and alpha blending functions to the same value.
+ *
+ * See the notes of the destinationBlend property for more information about material blending.
+ */
+@property(nonatomic, assign) GLenum destinationBlendRGB;
+
+/**
+ * The blending function to be applied to the alpha components of the source material (this material).
+ * This property must be set to one of the valid GL blending functions.
+ *
+ * In conjunction with the sourceBlendRGB property, this property allows the RGB blending and
+ * alpha blending to be specified separately. Alternately, you can use the sourceBlend property
+ * to set both RGB and alpha blending functions to the same value.
+ *
+ * See the notes of the sourceBlend property for more information about material blending.
+ */
+@property(nonatomic, assign) GLenum sourceBlendAlpha;
+
+/**
+ * The blending function to be applied to the alpha components of the destination material.
+ * This property must be set to one of the valid GL blending functions.
+ *
+ * In conjunction with the destinationBlendRGB property, this property allows the RGB blending
+ * and alpha blending to be specified separately. Alternately, you can use the destinationBlend
+ * property to set both RGB and alpha blending functions to the same value.
+ *
+ * See the notes of the destinationBlend property for more information about material blending.
+ */
+@property(nonatomic, assign) GLenum destinationBlendAlpha;
 
 /**
  * Indicates whether this material is opaque.
@@ -324,9 +449,9 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * property to be set to NO, which, as described above, will also affect the sourceBlend and
  * destinationBlend properties, so that the translucency will be blended correctly.
  *
- * However, setting the opacity property to 255 will NOT automatically cause this isOpaque property
- * to be set to YES. Even if the opacity of the material is full, the texture may contain translucency,
- * which would be ignored if the isOpaque property were to be set to YES.
+ * Setting the opacity property to 255 will automatically cause this isOpaque property to be set to
+ * YES (affecting the sourceBlend and destinationBlend properties), unless the shouldBlendAtFullOpacity
+ * property is set to YES, in which case the isOpaque property will be left set to NO.
  *
  * Setting this property can be thought of as a convenient way to switch between the two most
  * common types of blending combinations. For finer control of blending, set the sourceBlend
@@ -339,6 +464,32 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * can add up if a large number of opaque objects are rendered as if they were translucent.
  */
 @property(nonatomic, assign) BOOL isOpaque;
+
+/**
+ * Indicates whether blending should be applied even when the material is at full opacity.
+ *
+ * If this property is set to NO, when the opacity property of this material is set to full
+ * opacity (255), the isOpaque property will be set to YES, which in turn will set the
+ * sourceBlend property to GL_ONE and the destinationBlend property to GL_ZERO, effectively 
+ * turning blending off. This allows a node that is opaque to be faded, but when fading is
+ * complete, and full opacity is restored, the node will be set fully opaque, which improves
+ * performance and the affects the rendering order of the node relative to other nodes.
+ *
+ * If this property is set to YES, when the opacity property of this material is set to full
+ * opacity (255), the isOpaque property will be set to NO, which will leave the sourceBlend
+ * and destination properties at their current values, generally leaving blending enabled.
+ * This is useful when using fading on a material that contains textures that in turn contain
+ * transparency. When this material reaches full opacity, blending will be left enabled, and
+ * the transparent sections of the textures will continue to be rendered correctly.
+ *
+ * The initial value of this property is NO. Whenever a texture is added to, or removed from,
+ * this material, the value is set to the value of the hasTextureAlpha property, reflecting
+ * whether any of the textures contain an alpha channel. If you know that the alpha channel
+ * in each texture does not contain transparency, and that this material will be displayed at
+ * full opacity, you can set this property back to NO to benefit from improved performance
+ * in sorting and rendering opaque materials.
+ */
+@property(nonatomic, assign) BOOL shouldBlendAtFullOpacity;
 
 /**
  * Indicates the alpha test function that is used to determine if a pixel should be
@@ -389,8 +540,7 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * The value of this property has no effect if the value of the alphaTestFunction
  * property is either GL_ALWAYS or GL_NEVER.
  *
- * See the notes for the alphaTestFunction property for more information on alpha
- * testing.
+ * See the notes for the alphaTestFunction property for more information on alpha testing.
  */
 @property(nonatomic, assign) GLfloat alphaTestReference;
 
@@ -471,20 +621,65 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
 /**
  * Implementation of the CCBlendProtocol blendFunc property.
  *
- * This is a convenience property that gets and sets both the sourceBlend and
- * destinationBlend properties using a single structure.
+ * This is a convenience property that gets and sets the sourceBlend and destinationBlend 
+ * properties using a single structure.
+ *
+ * Materials support different using blending functions for the RGB components and the alpha component.
+ * To set separate blend values for RGB and alpha, use the blendFuncRGB and blendFuncAlpha properties
+ * instead. Setting this property sets the blendFuncRGB and blendFuncAlpha properties to the same value.
+ * Querying this property returns the value of the blendFuncRGB property.
  */
 @property(nonatomic, assign) ccBlendFunc blendFunc;
 
 /**
+ * The blending function to be applied to the RGB components.
+ *
+ * This is a convenience property that gets and sets both the sourceBlendRGB and
+ * destinationBlendRGB properties using a single structure.
+ *
+ * In conjunction with the blendFuncAlpha property, this property allows the RGB blending and
+ * alpha blending to be specified separately. Alternately, you can use the blendFunc property
+ * to set both RGB and alpha blending functions to the same value.
+ *
+ * See the notes of the sourceBlend and destinationBlend properties for more information
+ * about material blending.
+ */
+@property(nonatomic, assign) ccBlendFunc blendFuncRGB;
+
+/**
+ * The blending function to be applied to the alpha component.
+ *
+ * This is a convenience property that gets and sets both the sourceBlendAlpha and
+ * destinationBlendAlpha properties using a single structure.
+ *
+ * In conjunction with the blendFuncRGB property, this property allows the RGB blending and
+ * alpha blending to be specified separately. Alternately, you can use the blendFunc property
+ * to set both RGB and alpha blending functions to the same value.
+ *
+ * See the notes of the sourceBlend and destinationBlend properties for more information 
+ * about material blending.
+ */
+@property(nonatomic, assign) ccBlendFunc blendFuncAlpha;
+
+/**
  * Returns the default GL material source and destination blend function used for new instances.
+ * This affects both the RGB and alpha blending components.
  *
  * The initial value is {GL_ONE, GL_ZERO}.
  */
 +(ccBlendFunc) defaultBlendFunc;
 
-/** Sets the default GL material source and destination blend function used for new instances. */
+/** 
+ * Sets the default GL material source and destination blend function used for new instances. 
+ * This affects both the RGB and alpha blending components.
+ */
 +(void) setDefaultBlendFunc: (ccBlendFunc) aBlendFunc;
+
+/** @deprecated Moved to CC3MeshNode. */
+@property(nonatomic, strong) CC3ShaderContext* shaderContext DEPRECATED_ATTRIBUTE;
+
+/** @deprecated Moved to CC3MeshNode. */
+@property(nonatomic, strong) CC3ShaderProgram* shaderProgram DEPRECATED_ATTRIBUTE;
 
 
 #pragma mark Textures
@@ -516,8 +711,17 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * property directly, in order to keep the mesh aligned with the orientation and
  * usable area of the textures. See the notes for the same property on CC3MeshNode
  * for more information.
+ *
+ * When building for iOS, raw PNG and TGA images are pre-processed by Xcode to pre-multiply
+ * alpha, and to reorder the pixel component byte order, to optimize the image for the iOS 
+ * platform. If you want to avoid this pre-processing for PNG or TGA files, for textures 
+ * such as normal maps or lighting maps, that you don't want to be modified, you can prepend
+ * a 'p' to the file extension ("ppng" or "ptga") to cause Xcode to skip this pre-processing
+ * and to use a loader that does not pre-multiply the alpha. You can also use this for other
+ * file types as well. See the notes for the CC3STBImage useForFileExtensions class-side
+ * property for more info.
  */
-@property(nonatomic, retain) CC3Texture* texture;
+@property(nonatomic, strong) CC3Texture* texture;
 
 /**
  * In most situations, the material will use a single CC3Texture in the texture property.
@@ -536,16 +740,25 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * by GL texture unit zero. Subsequent textures added with this method will be processed
  * by subsequent texture units, in the order they were added.
  *
- * The maximum number of texture units available is platform dependent, but will
- * be at least two. The maximum number of texture units available can be read from
- * [CC3OpenGLES11Engine engine].platform.maxTextureUnits.value. If you attempt to
- * add more than this number of textures to the material, the additional textures
- * will be ignored, and an informational message to that fact will be logged.
+ * The maximum number of texture units available is platform dependent, but will be
+ * at least two. The maximum number of texture units available can be read from the
+ * CC3OpenGL.sharedGL.maxNumberOfTextureUnits property. If you attempt to add more than
+ * this number of textures to the material, the additional textures will be ignored,
+ * and an informational message to that fact will be logged.
  *
  * Once this material has been added to a mesh node, new textures should be added
  * through the same method on the mesh node itself, instead of this method, in order
  * to keep the mesh aligned with the orientation and usable area of the textures.
  * See the notes for the same method on CC3MeshNode for more information.
+ *
+ * When building for iOS, raw PNG and TGA images are pre-processed by Xcode to pre-multiply
+ * alpha, and to reorder the pixel component byte order, to optimize the image for the iOS
+ * platform. If you want to avoid this pre-processing for PNG or TGA files, for textures
+ * such as normal maps or lighting maps, that you don't want to be modified, you can prepend
+ * a 'p' to the file extension ("ppng" or "ptga") to cause Xcode to skip this pre-processing
+ * and to use a loader that does not pre-multiply the alpha. You can also use this for other
+ * file types as well. See the notes for the CC3STBImage useForFileExtensions class-side
+ * property for more info.
  */
 -(void) addTexture: (CC3Texture*) aTexture;
 
@@ -566,11 +779,11 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
 -(CC3Texture*) getTextureNamed: (NSString*) aName;
 
 /**
- * Returns the texture that will be processed by the texture unit with the specified
- * index, which should be a number between zero, and one less than the value of the
- * textureCount property.
+ * Returns the texture that will be processed by the texture unit with the specified index.
+ * Texture unit indices start at zero.
  *
- * The value returned will be nil if there are no textures.
+ * The value returned will be nil if there are no textures, or if the specified index is
+ * greater than one less than the value of the textureCount property.
  */
 -(CC3Texture*) textureForTextureUnit: (GLuint) texUnit;
 
@@ -593,21 +806,34 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
 -(void) setTexture: (CC3Texture*) aTexture forTextureUnit: (GLuint) texUnit;
 
 /**
- * Indicates whether the RGB components of each pixel of the encapsulated textures
- * have had the corresponding alpha component applied already.
+ * Returns whether any of the textures used by this material have an alpha channel, representing opacity.
+ *
+ * Returns YES if any of the textures contained in this instance has an alpha channel.
+ *
+ * See also the notes of the shouldBlendAtFullOpacity property for the effects of using a
+ * texture with an alpha channel.
+ */
+@property(nonatomic, readonly) BOOL hasTextureAlpha;
+
+/**
+ * Returns whether the alpha channel has already been multiplied into each of the RGB
+ * color channels, in any of the textures used by this material.
  *
  * Returns YES if any of the textures contained in this instance has pre-mulitiplied alpha.
- * 
+ *
  * See also the notes of the shouldApplyOpacityToColor property for the effects of using textures
  * with pre-multiplied alpha.
  */
-@property(nonatomic, readonly) BOOL hasPremultipliedAlpha;
+@property(nonatomic, readonly) BOOL hasTexturePremultipliedAlpha;
+
+/** @deprecated Renamed to hasTexturePremultipliedAlpha. */
+@property(nonatomic, readonly) BOOL hasPremultipliedAlpha DEPRECATED_ATTRIBUTE;
 
 /**
  * Returns whether the opacity of each of the material colors (ambient, diffuse, specular and emission)
  * should be blended (multiplied) by its alpha value prior to being submitted to the GL engine.
  *
- * This property returns YES if the sourceBlend property is set to GL_ONE and the hasPremultipliedAlpha
+ * This property returns YES if the sourceBlendRGB property is set to GL_ONE and the hasPremultipliedAlpha
  * property returns YES, otherwise this property returns NO. The combination of full source blending
  * and pre-multiplied texture alpha can be made translucent by blending each color with its alpha value.
  *
@@ -615,6 +841,22 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  * alpha component prior to being submitted to the GL engine.
  */
 @property(nonatomic, readonly) BOOL shouldApplyOpacityToColor;
+
+/**
+ * Returns a cube-map texture if this material contains such a texture, or nil if it does not.
+ *
+ * This is a convenience property that returns the first cube-map texture that was added.
+ */
+@property(nonatomic, strong, readonly) CC3Texture* textureCube;
+
+/** 
+ * Returns whether this material contains a texture that is a six-sided cube-map texture.
+ *
+ * Returns YES only if one of the textures that was added to this material (either through the
+ * texture property or the addTexture: method) returns YES from its isTextureCube property.
+ * Otherwise, this property returns NO.
+ */
+@property(nonatomic, readonly) BOOL hasTextureCube;
 
 /**
  * Returns whether this material contains a texture that is configured as a bump-map.
@@ -643,7 +885,7 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
  *
  * The value of this property must be in the tangent-space coordinates associated
  * with the texture UV space, in practice, this property is typically not set
- * directly. Instead, you can use the globalLightLocation property of the mesh
+ * directly. Instead, you can use the globalLightPosition property of the mesh
  * node that is making use of this texture.
  */
 @property(nonatomic, assign) CC3Vector lightDirection;
@@ -714,33 +956,13 @@ static const GLfloat kCC3MaximumMaterialShininess = 128.0;
 -(void) drawWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 /**
- * Unbinds the GL engine from any materials.
- * 
- * This implementation simply delegates to the unbind class method.
+ * Unbinds all materials from the GL engine.
+ *
+ * Disables material blending in the GL engine.
+ *
+ * This method is invoked automatically from the CC3MeshNode instance.
  * Usually, the application never needs to invoke this method directly.
  */
--(void) unbind;
-
-/**
- * Unbinds the GL engine from any materials.
- * 
- * Disables material blending in the GL engine, and invokes the unbind class method
- * of CC3Texture to disable all texturing.
- *
- * This method is invoked automatically from the CC3Node instance.
- * Usually, the application never needs to invoke this method directly.
- */
-+(void) unbind;
-
-
-#pragma mark Material context switching
-
-/**
- * Resets the tracking of the material switching functionality.
- *
- * This is invoked automatically by the CC3Scene at the beginning of each frame
- * drawing cycle. Usually, the application never needs to invoke this method directly.
- */
-+(void) resetSwitching;
++(void) unbindWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 @end

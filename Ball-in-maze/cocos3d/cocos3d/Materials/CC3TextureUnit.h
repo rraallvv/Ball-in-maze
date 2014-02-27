@@ -1,9 +1,9 @@
 /*
  * CC3TextureUnit.h
  *
- * cocos3d 0.7.2
+ * cocos3d 2.0.0
  * Author: Bill Hollings
- * Copyright (c) 2011-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2011-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,7 +29,6 @@
 
 /** @file */	// Doxygen marker
 
-#import "CC3OpenGLES11Textures.h"
 #import "CC3NodeVisitor.h"
 #import "CCProtocols.h"
 
@@ -55,16 +54,21 @@ typedef enum {
 #pragma mark CC3TextureUnit
 
 /** 
- * CC3TextureUnit is used by CC3Texture to configure the GL texture unit to which the
- * texture is being applied. Notably, the texture unit defines how the texture is to
- * be combined with textures from other texture units in a multi-texture layout.
+ * In fixed rendering pipeline (without shaders), CC3TextureUnit is used by certain classes
+ * in the CC3Texture class-cluster to configure the GL texture environment to which the
+ * texture is being applied. Notably, the texture unit defines how the texture is to be
+ * combined with textures from other texture units in a multi-texture layout.
  *
- * With multi-texturing, several textures can be overlaid and combined in interesting
- * ways onto a single material. Each texture is processed by a GL texture unit, and
- * is combined with the textures already processed by other texture units. The source
- * and type of combining operation can be individually configured by subclasses of
- * this class. Support for bump-mapping as one of these combining configurations is
- * explicitly provided by the CC3BumpMapTextureUnit subclass.
+ * CC3TextureUnit is not typically used in a programmable rendering pipeline containing
+ * GLSL shaders. However, for certain techniques, such as object-space bump-mapping, a
+ * CC3TextureUnit can be used to carry additional environmental parameters for the shaders.
+ *
+ * With fixed-pipeline multi-texturing, several textures can be overlaid and combined in
+ * interesting ways onto a single material. Each texture is processed by a GL texture unit,
+ * and is combined with the textures already processed by other texture units. The source
+ * and type of combining operation can be individually configured by subclasses of this class.
+ * Support for bump-mapping as one of these combining configurations is explicitly provided
+ * by the CC3BumpMapTextureUnit subclass.
  *
  * This base CC3TextureUnit class permits setting a variety of texture environment
  * modes via the textureEnvironmentMode property. For the full range of configuration
@@ -72,9 +76,9 @@ typedef enum {
  * configuration properties associated with the GL_COMBINE texture environment mode.
  */
 @interface CC3TextureUnit : NSObject <NSCopying, CCRGBAProtocol> {
-	GLenum textureEnvironmentMode;
-	ccColor4F constantColor;
-	GLubyte rgbNormalMap;
+	GLenum _textureEnvironmentMode;
+	ccColor4F _constantColor;
+	CC3DOT3RGB _rgbNormalMap : 4;
 }
 
 /**
@@ -85,9 +89,8 @@ typedef enum {
  * property to GL_MODULATE replicates the default behaviour of the CC3Texture class.
  *
  * If you want to set this property to GL_COMBINE, to open up significant additional
- * configuration flexibility, use the CC3ConfigurableTextureUnit subclass, which
- * contains the full range of configuration properties associated with the GL_COMBINE
- * functionality.
+ * configuration flexibility, use the CC3ConfigurableTextureUnit subclass, which contains
+ * the full range of configuration properties associated with the GL_COMBINE functionality.
  *
  * The initial value of this property is GL_MODULATE.
  */
@@ -98,10 +101,9 @@ typedef enum {
  * when the value of one of the source properties of a subclass is set to
  * GL_CONSTANT. This is often the case for bump-mapping configurations.
  * 
- * Although this property can be set directly, it is rare to do so. Usually,
- * this property is set indirectly via the lightDirection property, which
- * converts the XYZ coordinates of a lighting direction vector into the RGB
- * components of this property.
+ * Although this property can be set directly, it is rare to do so. Usually, this property
+ * is set indirectly via the lightDirection property, which converts the XYZ coordinates of
+ * a lighting direction vector into the RGB components of this property.
  *
  * This property is not used by this parent class implementation, but is
  * provided for common access by subclasses.
@@ -131,7 +133,7 @@ typedef enum {
  *
  * The value of this property must be in the tangent-space coordinates associated
  * with the texture UV space, in practice, this property is typically not set
- * directly. Instead, you can use the globalLightLocation property of the mesh
+ * directly. Instead, you can use the globalLightPosition property of the mesh
  * node that is making use of this texture and texture unit.
  */
 @property(nonatomic, assign) CC3Vector lightDirection;
@@ -196,20 +198,12 @@ typedef enum {
 #pragma mark Drawing
 
 /**
- * Template method that binds the configuration of this texture unit to the
- * specified GL texture unit.
- *
- * This implementation simply sets the combining function to the default value of
- * GL_MODULATE, and sets the texture constant color to that of the constantColor
- * property. This is the same functionality provided by the unbindFrom: method when
- * no texture unit configuration is present. Subclasses will override to provide
- * more interesting combining techniques.
+ * Template method that binds the configuration of this texture unit to the GL engine.
  *
  * The visitor provides additional configuration information that can be
  * used by subclass overrides of this method.
  */
--(void) bindTo: (CC3OpenGLES11TextureUnit*) gles11TexUnit
-   withVisitor: (CC3NodeDrawingVisitor*) visitor;
+-(void) bindWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 /**
  * Automatically invoked from CC3Texture when no texture unit configuration is
@@ -218,7 +212,7 @@ typedef enum {
  * In the GL engine, sets the combining function to the default value of GL_MODULATE,
  * and the texture constant color to the default value of kCCC4FBlackTransparent.
  */
-+(void) bindDefaultTo: (CC3OpenGLES11TextureUnit*) gles11TexUnit;
++(void) bindDefaultWithVisitor: (CC3NodeDrawingVisitor*) visitor;
 
 @end
 
@@ -231,20 +225,20 @@ typedef enum {
  * the texture will be combined with the output of previous texture units.
  */
 @interface CC3ConfigurableTextureUnit : CC3TextureUnit {
-	GLenum combineRGBFunction;
-	GLenum rgbSource0;
-	GLenum rgbSource1;
-	GLenum rgbSource2;
-	GLenum rgbOperand0;
-	GLenum rgbOperand1;
-	GLenum rgbOperand2;
-	GLenum combineAlphaFunction;
-	GLenum alphaSource0;
-	GLenum alphaSource1;
-	GLenum alphaSource2;
-	GLenum alphaOperand0;
-	GLenum alphaOperand1;
-	GLenum alphaOperand2;
+	GLenum _combineRGBFunction;
+	GLenum _rgbSource0;
+	GLenum _rgbSource1;
+	GLenum _rgbSource2;
+	GLenum _rgbOperand0;
+	GLenum _rgbOperand1;
+	GLenum _rgbOperand2;
+	GLenum _combineAlphaFunction;
+	GLenum _alphaSource0;
+	GLenum _alphaSource1;
+	GLenum _alphaSource2;
+	GLenum _alphaOperand0;
+	GLenum _alphaOperand1;
+	GLenum _alphaOperand2;
 }
 
 /**
@@ -467,9 +461,8 @@ typedef enum {
 /**
  * Returns whether this texture unit is configured as a bump-map.
  *
- * This implementation always returns YES if the textureEnvironmentMode property
- * is set to GL_COMBINE and the combineRGBFunction property is set to either
- * GL_DOT3_RGB or GL_DOT3_RGBA.
+ * This implementation always returns YES if the textureEnvironmentMode property is set to
+ * GL_COMBINE and the combineRGBFunction property is set to either GL_DOT3_RGB or GL_DOT3_RGBA.
  */
 @property(nonatomic, readonly) BOOL isBumpMap;
 
@@ -480,25 +473,21 @@ typedef enum {
 #pragma mark CC3BumpMapTextureUnit
 
 /**
- * A texture unit configured for DOT3 bump-mapping. It will combine the per-pixel
- * normal vectors found in the texture with the constantColor property to derive
- * per-pixel luminosity.
+ * A texture unit configured for DOT3 bump-mapping. It will combine the per-pixel normal
+ * vectors found in the texture with the constantColor property to derive per-pixel luminosity.
  *
- * Typically, the value of the constantColor property is not set directly, but is
- * established automatically by setting the lightDirection property to indicate the
- * direction of the light source, in tanget-space coordinates. See the notes of the
- * lightDirection property for more information about establishing the direction of
- * the light source.
+ * Typically, the value of the constantColor property is not set directly, but is established
+ * automatically by setting the lightDirection property to indicate the direction of the light
+ * source, in tanget-space coordinates. See the notes of the lightDirection property for more
+ * information about establishing the direction of the light source.
  * 
- * This implementation combines the texture RGB components (rdbSource0) with the
- * value of constantColor (as rgbSource1), using a DOT3 combining function.
- * If you need more flexibility in configuing the bump-mapping, consider using
- * an instance of CC3ConfigurableTextureUnit.
+ * This implementation combines the texture RGB components (rdbSource0) with the value of
+ * constantColor (as rgbSource1), using a DOT3 combining function. If you need more flexibility
+ * in configuing the bump-mapping, consider using an instance of CC3ConfigurableTextureUnit.
  *
- * When using bump-mapping, you should associate this texture unit with the first
- * texture of a material to establish per-pixel luminosity, and then add any
- * additional textures (ie- the visible texture) on the material so they will be
- * combined with the luminosity output.
+ * When using bump-mapping, you should associate this texture unit with the first texture of
+ * a material to establish per-pixel luminosity, and then add any additional textures (ie- the
+ * visible texture) on the material so they will be combined with the luminosity output.
  */
 @interface CC3BumpMapTextureUnit : CC3TextureUnit
 

@@ -3,7 +3,7 @@
  *
  * cocos3d 0.6.3
  * Author: Bill Hollings
- * Copyright (c) 2011-2012 The Brenwill Workshop Ltd. All rights reserved.
+ * Copyright (c) 2011-2014 The Brenwill Workshop Ltd. All rights reserved.
  * http://www.brenwill.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -32,19 +32,17 @@
 #import "CC3ShadowVolumes.h"
 #import "CC3Scene.h"
 #import "CC3ParametricMeshNodes.h"
-#import "CC3OpenGLES11Engine.h"
 
 
 @interface CC3Node (TemplateMethods)
 -(void) processUpdateBeforeTransform: (CC3NodeUpdatingVisitor*) visitor;
 -(void) transformMatrixChanged;
-@property(nonatomic, assign, readwrite) CC3Node* parent;
+@property(nonatomic, unsafe_unretained, readwrite) CC3Node* parent;
 @end
 
 @interface CC3MeshNode (TemplateMethods)
 -(id) shadowVolumeClass;
 -(void) applyLocalTransforms;
--(void) cacheRestPoseMatrix;
 -(void) configureDrawingParameters: (CC3NodeDrawingVisitor*) visitor;
 -(void) cleanupDrawingParameters: (CC3NodeDrawingVisitor*) visitor;
 @end
@@ -53,45 +51,13 @@
 #pragma mark -
 #pragma mark CC3ShadowVolumeMeshNode
 
-@interface CC3ShadowVolumeMeshNode (TemplateMethods)
--(void) createShadowMesh;
--(void) checkShadowMaterial;
--(void) populateShadowMesh;
--(void) updateStencilAlgorithm;
--(CC3Vector4) shadowVolumeVertexOffsetForLightAt: (CC3Vector4) localLightPos;
--(BOOL) addShadowVolumeCapFor: (BOOL) isFaceLit
-						 face: (CC3Vector4*) vertices
-				   forLightAt: (CC3Vector4) lightPosition
-			  startingAtIndex: (GLuint*) shdwVtxIdx;
--(BOOL) addTerminatorLineFrom: (CC3Vector4) edgeStartLoc
-						   to: (CC3Vector4) edgeEndLoc
-			  startingAtIndex: (GLuint*) shdwVtxIdx;
--(BOOL) addShadowVolumeSideFrom: (CC3Vector4) edgeStartLoc
-							 to: (CC3Vector4) edgeEndLoc
-		  forDirectionalLightAt: (CC3Vector4) lightPosition
-				startingAtIndex: (GLuint*) shdwVtxIdx;
--(BOOL) addShadowVolumeSideFrom: (CC3Vector4) edgeStartLoc
-							 to: (CC3Vector4) edgeEndLoc
-						withCap: (BOOL) doesRequireCapping
-		   forLocationalLightAt: (CC3Vector4) lightPosition
-				startingAtIndex: (GLuint*) shdwVtxIdx;
--(CC3Vector4) expand: (CC3Vector4) edgeLoc awayFromLocationalLightAt: (CC3Vector4) lightLoc;
--(void) drawToStencilIncrementing: (BOOL) isIncrementing
-					  withVisitor: (CC3NodeDrawingVisitor*) visitor;
-@property(nonatomic, readonly) CC3MeshNode* shadowCaster;
-@property(nonatomic, readonly) CC3VertexArrayMesh* shadowMesh;
-@property(nonatomic, readonly) BOOL isReadyToUpdate;
-@end
-
-
 @implementation CC3ShadowVolumeMeshNode
 
-@synthesize light, shouldDrawTerminator;
+@synthesize light=_light, shouldDrawTerminator=_shouldDrawTerminator;
 
 -(void) dealloc {
-	[light removeShadow: self];		// Will also set light to nil
-	LogTrace(@"Removed %@ from %@ leaving %i shadows", self, light, light.shadows.count);
-	[super dealloc];
+	[_light removeShadow: self];		// Will also set light to nil
+	LogTrace(@"Removed %@ from %@ leaving %i shadows", self, _light, _light.shadows.count);
 }
 
 -(BOOL) isShadowVolume { return YES; }
@@ -103,7 +69,7 @@
 }
 
 // Overridden so that can still be visible if parent is invisible, unless explicitly turned off.
--(BOOL) visible { return visible; }
+-(BOOL) visible { return _visible; }
 
 /**
  * If shadow volume should be visible, add a material
@@ -115,77 +81,73 @@
 }
 
 -(void) setShouldDrawTerminator: (BOOL) shouldDraw {
-	shouldDrawTerminator = shouldDraw;
-	self.drawingMode = shouldDrawTerminator ? GL_LINES : GL_TRIANGLES;
+	_shouldDrawTerminator = shouldDraw;
+	self.drawingMode = _shouldDrawTerminator ? GL_LINES : GL_TRIANGLES;
 	[self checkShadowMaterial];
 }
 
--(GLushort) shadowLagFactor { return shadowLagFactor; }
+-(GLushort) shadowLagFactor { return _shadowLagFactor; }
 
 -(void) setShadowLagFactor: (GLushort) lagFactor {
-	shadowLagFactor = MAX(lagFactor, 1);
+	_shadowLagFactor = MAX(lagFactor, 1);
 	super.shadowLagFactor = lagFactor;
 }
 
--(GLushort) shadowLagCount { return shadowLagCount; }
+-(GLushort) shadowLagCount { return _shadowLagCount; }
 
 -(void) setShadowLagCount: (GLushort) lagCount {
-	shadowLagCount = lagCount;
+	_shadowLagCount = lagCount;
 	super.shadowLagCount = lagCount;
 }
 
--(BOOL) shouldShadowFrontFaces { return shouldShadowFrontFaces; }
+-(BOOL) shouldShadowFrontFaces { return _shouldShadowFrontFaces; }
 
 -(void) setShouldShadowFrontFaces: (BOOL) shouldShadow {
-	shouldShadowFrontFaces = shouldShadow;
+	_shouldShadowFrontFaces = shouldShadow;
 	super.shouldShadowFrontFaces = shouldShadow;
 }
 
--(BOOL) shouldShadowBackFaces { return shouldShadowBackFaces; }
+-(BOOL) shouldShadowBackFaces { return _shouldShadowBackFaces; }
 
 -(void) setShouldShadowBackFaces: (BOOL) shouldShadow {
-	shouldShadowBackFaces = shouldShadow;
+	_shouldShadowBackFaces = shouldShadow;
 	super.shouldShadowBackFaces = shouldShadow;
 }
 
--(GLfloat) shadowOffsetFactor {
-	return decalOffsetFactor ? decalOffsetFactor : super.shadowOffsetFactor;
-}
+-(GLfloat) shadowOffsetFactor { return _decalOffsetFactor ? _decalOffsetFactor : super.shadowOffsetFactor; }
 
 -(void) setShadowOffsetFactor: (GLfloat) factor {
-	decalOffsetFactor = factor;
+	_decalOffsetFactor = factor;
 	super.shadowOffsetFactor = factor;
 }
 
--(GLfloat) shadowOffsetUnits {
-	return decalOffsetUnits ? decalOffsetUnits : super.shadowOffsetUnits;
-}
+-(GLfloat) shadowOffsetUnits { return _decalOffsetUnits ? _decalOffsetUnits : super.shadowOffsetUnits; }
 
 -(void) setShadowOffsetUnits: (GLfloat) units {
-	decalOffsetUnits = units;
+	_decalOffsetUnits = units;
 	super.shadowOffsetUnits = units;
 }
 
 -(GLfloat) shadowVolumeVertexOffsetFactor {
-	return shadowVolumeVertexOffsetFactor ? shadowVolumeVertexOffsetFactor : super.shadowVolumeVertexOffsetFactor;
+	return _shadowVolumeVertexOffsetFactor ? _shadowVolumeVertexOffsetFactor : super.shadowVolumeVertexOffsetFactor;
 }
 
 -(void) setShadowVolumeVertexOffsetFactor: (GLfloat) factor {
-	shadowVolumeVertexOffsetFactor = factor;
+	_shadowVolumeVertexOffsetFactor = factor;
 	super.shadowVolumeVertexOffsetFactor = factor;
 }
 
--(GLfloat) shadowExpansionLimitFactor { return shadowExpansionLimitFactor; }
+-(GLfloat) shadowExpansionLimitFactor { return _shadowExpansionLimitFactor; }
 
 -(void) setShadowExpansionLimitFactor: (GLfloat) factor {
-	shadowExpansionLimitFactor = factor;
+	_shadowExpansionLimitFactor = factor;
 	super.shadowExpansionLimitFactor = factor;
 }
 
--(BOOL) shouldAddShadowVolumeEndCapsOnlyWhenNeeded { return shouldAddEndCapsOnlyWhenNeeded; }
+-(BOOL) shouldAddShadowVolumeEndCapsOnlyWhenNeeded { return _shouldAddEndCapsOnlyWhenNeeded; }
 
 -(void) setShouldAddShadowVolumeEndCapsOnlyWhenNeeded: (BOOL) onlyWhenNeeded {
-	shouldAddEndCapsOnlyWhenNeeded = onlyWhenNeeded;
+	_shouldAddEndCapsOnlyWhenNeeded = onlyWhenNeeded;
 	super.shouldAddShadowVolumeEndCapsOnlyWhenNeeded = onlyWhenNeeded;
 }
 
@@ -198,30 +160,30 @@
 
 -(id) initWithTag: (GLuint) aTag withName: (NSString*) aName {
 	if ( (self = [super initWithTag: aTag withName: aName]) ) {
-		light = nil;
-		visible = NO;
-		isShadowDirty = YES;
-		shouldDrawTerminator = NO;
-		shouldShadowFrontFaces = YES;
-		shouldShadowBackFaces = NO;
-		shouldAddEndCapsOnlyWhenNeeded = NO;
-		useDepthFailAlgorithm = NO;
+		_light = nil;
+		_visible = NO;
+		_isShadowDirty = YES;
+		_shouldDrawTerminator = NO;
+		_shouldShadowFrontFaces = YES;
+		_shouldShadowBackFaces = NO;
+		_shouldAddEndCapsOnlyWhenNeeded = NO;
+		_useDepthFailAlgorithm = NO;
 		self.shouldUseLighting = NO;
 		self.shouldDisableDepthMask = YES;
-		shadowLagFactor = 1;
-		shadowLagCount = 1;
+		_shadowLagFactor = 1;
+		_shadowLagCount = 1;
 		self.shadowOffsetFactor = 0;
 		self.shadowOffsetUnits = -1;
-		shadowVolumeVertexOffsetFactor = 0;
-		shadowExpansionLimitFactor = 100;
+		_shadowVolumeVertexOffsetFactor = 0;
+		_shadowExpansionLimitFactor = 100;
 		self.pureColor = kCCC4FYellow;		// For terminator lines
 	}
 	return self;
 }
 
 // Protected properties for copying
--(BOOL) isShadowDirty { return isShadowDirty; }
--(BOOL) useDepthFailAlgorithm { return useDepthFailAlgorithm; }
+-(BOOL) isShadowDirty { return _isShadowDirty; }
+-(BOOL) useDepthFailAlgorithm { return _useDepthFailAlgorithm; }
 
 // Template method that populates this instance from the specified other instance.
 // This method is invoked automatically during object copying via the copyWithZone: method.
@@ -229,43 +191,34 @@
 	[super populateFrom: another];
 	
 	self.light = another.light;						// not retained
-	isShadowDirty = another.isShadowDirty;
-	shouldShadowFrontFaces = another.shouldShadowFrontFaces;
-	shouldShadowBackFaces = another.shouldShadowBackFaces;
-	shouldDrawTerminator = another.shouldDrawTerminator;
-	shouldAddEndCapsOnlyWhenNeeded = another.shouldAddShadowVolumeEndCapsOnlyWhenNeeded;
-	useDepthFailAlgorithm = another.useDepthFailAlgorithm;
-	shadowLagFactor = another.shadowLagFactor;
-	shadowLagCount = another.shadowLagCount;
-	shadowVolumeVertexOffsetFactor = another.shadowVolumeVertexOffsetFactor;
-	shadowExpansionLimitFactor = another.shadowExpansionLimitFactor;
+	_isShadowDirty = another.isShadowDirty;
+	_shouldShadowFrontFaces = another.shouldShadowFrontFaces;
+	_shouldShadowBackFaces = another.shouldShadowBackFaces;
+	_shouldDrawTerminator = another.shouldDrawTerminator;
+	_shouldAddEndCapsOnlyWhenNeeded = another.shouldAddShadowVolumeEndCapsOnlyWhenNeeded;
+	_useDepthFailAlgorithm = another.useDepthFailAlgorithm;
+	_shadowLagFactor = another.shadowLagFactor;
+	_shadowLagCount = another.shadowLagCount;
+	_shadowVolumeVertexOffsetFactor = another.shadowVolumeVertexOffsetFactor;
+	_shadowExpansionLimitFactor = another.shadowExpansionLimitFactor;
 }
 
 /**
- * Overridden to use an infinite bounding volume so that the shadow volume
+ * Overridden to return nil so that the shadow volume
  * will always be drawn when made visible during development.
  */
--(CC3NodeBoundingVolume*) defaultBoundingVolume {
-	return [CC3NodeInfiniteBoundingVolume boundingVolume];
-}
+-(CC3NodeBoundingVolume*) defaultBoundingVolume { return nil; }
 
 /** Returns this node's parent, cast as a mesh node. */
--(CC3MeshNode*) shadowCaster { return (CC3MeshNode*)parent; }
-
-/** Returns this node's mesh, cast as a vertex array mesh. */
--(CC3VertexArrayMesh*) shadowMesh { return (CC3VertexArrayMesh*)mesh; }
+-(CC3MeshNode*) shadowCaster { return (CC3MeshNode*)_parent; }
 
 /** A shadow volume only uses a material when it is to be visible during development. */
 -(void) checkShadowMaterial {
-	if ( !shouldDrawTerminator && self.visible ) {
-		if ( !material ) {
-			self.material = [CC3Material material];
-			self.color = ccc3(85, 85, 85);
-			self.opacity = 85;
-		}
-	} else {
+	if ( !_shouldDrawTerminator && self.visible ) {
+		self.color = ccc3(85, 85, 85);	// Will lazily init material if needed
+		self.opacity = 85;
+	} else
 		self.material = nil;
-	}
 }
 
 -(void) createShadowMesh {
@@ -277,9 +230,9 @@
 	locArray.elementSize = 4;						// We're using homogeneous coordinates!
 	locArray.allocatedVertexCapacity = vertexCount;
 	locArray.vertexCount = 0;						// Will be populated dynamically
-	locArray.shouldReleaseRedundantData = NO;		// Shadow vertex data is dynamic
+	locArray.shouldReleaseRedundantContent = NO;	// Shadow vertex data is dynamic
 	
-	CC3VertexArrayMesh* aMesh = [CC3VertexArrayMesh mesh];
+	CC3Mesh* aMesh = [CC3Mesh mesh];
 	aMesh.vertexLocations = locArray;
 	self.mesh = aMesh;
 }
@@ -299,23 +252,23 @@
  */
 -(CC3Vector4) shadowVolumeVertexOffsetForLightAt: (CC3Vector4) localLightPos {
 	CC3Vector scLoc = self.shadowCaster.localContentCenterOfGeometry;
-	CC3Vector lgtLoc = CC3VectorFromTruncatedCC3Vector4(localLightPos);
-	CC3Vector camLoc = [self.shadowCaster.transformMatrixInverted
+	CC3Vector lgtLoc = localLightPos.v;
+	CC3Vector camLoc = [self.shadowCaster.globalTransformMatrixInverted
 							transformLocation: self.activeCamera.globalLocation];	
 
 	// Get a unit offset vector in the direction away from the light
-	CC3Vector offsetDir = CC3VectorNormalize((light.isDirectionalOnly)
+	CC3Vector offsetDir = CC3VectorNormalize((_light.isDirectionalOnly)
 												? CC3VectorNegate(lgtLoc) 
 												: CC3VectorDifference(scLoc, lgtLoc));
 
 	// Get the distance from the shadow caster CoG and the camera, and scale the
 	// unit offset vector by that distance and the shadowVolumeVertexOffsetFactor
 	GLfloat camDist = CC3VectorDistance(scLoc, camLoc);
-	CC3Vector offset = CC3VectorScaleUniform(offsetDir, (camDist * shadowVolumeVertexOffsetFactor));
+	CC3Vector offset = CC3VectorScaleUniform(offsetDir, (camDist * _shadowVolumeVertexOffsetFactor));
 	LogTrace(@"%@ nudging vertices by %@", self, NSStringFromCC3Vector(offset));
 
 	// Create and return a 4D directional vector from the offset
-	return CC3Vector4FromCC3Vector(offset, 0.0f);
+	return CC3Vector4FromDirection(offset);
 }
 
 /**
@@ -339,15 +292,15 @@
 	GLuint faceCnt = scNode.faceCount;
 	GLuint shdwVtxIdx = 0;
 	BOOL wasMeshExpanded = NO;
-	BOOL doesRequireCapping = useDepthFailAlgorithm || !shouldAddEndCapsOnlyWhenNeeded;
+	BOOL doesRequireCapping = _useDepthFailAlgorithm || !_shouldAddEndCapsOnlyWhenNeeded;
 	
 	// Transform the 4D position of the light into the local coordinates of the shadow caster.
-	CC3Vector4 lightPosition = light.homogeneousLocation;
-	CC3Vector4 localLightPosition = [scNode.transformMatrixInverted
+	CC3Vector4 lightPosition = _light.globalHomogeneousPosition;
+	CC3Vector4 localLightPosition = [scNode.globalTransformMatrixInverted
 									 transformHomogeneousVector: lightPosition];
 	
 	// Determine whether we want to nudge the shadow volume vertices away from the shadow caster
-	BOOL isNudgingVertices = (shadowVolumeVertexOffsetFactor != 0.0f);
+	BOOL isNudgingVertices = (_shadowVolumeVertexOffsetFactor != 0.0f);
 	CC3Vector4 svVtxNudge = isNudgingVertices
 								? [self shadowVolumeVertexOffsetForLightAt: localLightPosition]
 								: kCC3Vector4Zero;
@@ -367,8 +320,8 @@
 	LogTrace(@"%@ global light location: %@ shadow local light: %@ %@ inverted: %@",
 				  self, NSStringFromCC3Vector4(lightPosition),
 				  NSStringFromCC3Vector4(localLightPosition),
-				  scNode.transformMatrix,
-				  scNode.transformMatrixInverted);
+				  scNode.globalTransformMatrix,
+				  scNode.globalTransformMatrixInverted);
 	
 	// Iterate through all the faces in the mesh of the shadow caster.
 	for (GLuint faceIdx = 0; faceIdx < faceCnt; faceIdx++) {
@@ -376,9 +329,9 @@
 		// Retrieve the current face, convert it to 4D homogeneous locations
 		CC3Face face = [scNode deformedFaceAt: faceIdx];
 		CC3Vector4 vertices4d[3];
-		vertices4d[0] = CC3Vector4FromCC3Vector(face.vertices[0], 1.0f);
-		vertices4d[1] = CC3Vector4FromCC3Vector(face.vertices[1], 1.0f);
-		vertices4d[2] = CC3Vector4FromCC3Vector(face.vertices[2], 1.0f);
+		vertices4d[0] = CC3Vector4FromLocation(face.vertices[0]);
+		vertices4d[1] = CC3Vector4FromLocation(face.vertices[1]);
+		vertices4d[2] = CC3Vector4FromLocation(face.vertices[2]);
 		
 		// If needed, nudge the shadow volume face away from the
 		// shadow caster face in the direction away from the light
@@ -402,7 +355,9 @@
 		// It's part of an end-cap if it's a dark face and shadowing is based on front
 		// faces (typical), or it's a lit face and shadowing is (also) based on back faces
 		// (as with some open meshes).
-		if (doesRequireCapping && (isFaceLit ? shouldShadowBackFaces : shouldShadowFrontFaces) && !shouldDrawTerminator) {
+		if (doesRequireCapping &&
+			(isFaceLit ? _shouldShadowBackFaces : _shouldShadowFrontFaces) &&
+			!_shouldDrawTerminator) {
 			LogTrace(@"%@ adding end cap for face %i", self, faceIdx);
 			wasMeshExpanded |= [self addShadowVolumeCapFor: isFaceLit
 													  face: vertices4d
@@ -428,7 +383,7 @@
 			//     larger index than the current face.
 			BOOL isTerminatorEdge = NO;
 			if (neighbourFaceIdx == kCC3FaceNoNeighbour) {
-				isTerminatorEdge = isFaceLit ? shouldShadowFrontFaces : shouldShadowBackFaces;
+				isTerminatorEdge = isFaceLit ? _shouldShadowFrontFaces : _shouldShadowBackFaces;
 			} else if (neighbourFaceIdx > faceIdx) {		// Don't double count edges
 				BOOL isNeighbourFaceLit = CC3Vector4IsInFrontOfPlane(localLightPosition, [scNode deformedFacePlaneAt: neighbourFaceIdx]);
 				isTerminatorEdge = (isNeighbourFaceLit != isFaceLit);
@@ -482,17 +437,17 @@
 	}
 	
 	// Update the vertex count of the shadow volume mesh, based on how many sides we've added.
-	mesh.vertexCount = shdwVtxIdx;
+	_mesh.vertexCount = shdwVtxIdx;
 	LogTrace(@"%@ setting vertex count to %u", self, shdwVtxIdx);
 	
 	// If the mesh is using GL VBO's, update them. If the mesh was expanded,
 	// recreate the VBO's, otherwise update them.
-	if (mesh.isUsingGLBuffers) {
+	if (_mesh.isUsingGLBuffers) {
 		if (wasMeshExpanded) {
-			[mesh deleteGLBuffers];
-			[mesh createGLBuffers];
+			[_mesh deleteGLBuffers];
+			[_mesh createGLBuffers];
 		} else {
-			[mesh updateVertexLocationsGLBuffer];
+			[_mesh updateVertexLocationsGLBuffer];
 		}
 	}
 	LogTrace(@"Finshed populating %@", self);
@@ -517,13 +472,13 @@
 	CC3Vector4 farLoc = CC3Vector4HomogeneousNegate(lightPosition);
 	
 	// Ensure the mesh has enough capacity for another triangle.
-	BOOL wasMeshExpanded = [self.shadowMesh ensureVertexCapacity: (*shdwVtxIdx + 3)];
+	BOOL wasMeshExpanded = [self.mesh ensureVertexCapacity: (*shdwVtxIdx + 3)];
 	
 	// Add a single triangle from the edge to a single point at infinity,
 	// with the same winding as the dark face.
-	[mesh setVertexHomogeneousLocation: edgeStartLoc at: (*shdwVtxIdx)++];
-	[mesh setVertexHomogeneousLocation: farLoc at: (*shdwVtxIdx)++];
-	[mesh setVertexHomogeneousLocation: edgeEndLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: edgeStartLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: farLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: edgeEndLoc at: (*shdwVtxIdx)++];
 	
 	LogTrace(@"%@ drawing shadow volume side face for directional light", self);
 	
@@ -578,18 +533,18 @@
 	}
 	
 	// Ensure the mesh has enough capacity for another two triangles.
-	BOOL wasMeshExpanded = [self.shadowMesh ensureVertexCapacity: (*shdwVtxIdx + 6)];
+	BOOL wasMeshExpanded = [self.mesh ensureVertexCapacity: (*shdwVtxIdx + 6)];
 	
 	// The shadow volume faces have the same winding as the dark face.
 	// First triangular face:
-	[mesh setVertexHomogeneousLocation: edgeStartLoc at: (*shdwVtxIdx)++];
-	[mesh setVertexHomogeneousLocation: farStartLoc at: (*shdwVtxIdx)++];
-	[mesh setVertexHomogeneousLocation: farEndLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: edgeStartLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: farStartLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: farEndLoc at: (*shdwVtxIdx)++];
 	
 	// Second triangular face:
-	[mesh setVertexHomogeneousLocation: edgeStartLoc at: (*shdwVtxIdx)++];
-	[mesh setVertexHomogeneousLocation: farEndLoc at: (*shdwVtxIdx)++];
-	[mesh setVertexHomogeneousLocation: edgeEndLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: edgeStartLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: farEndLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: edgeEndLoc at: (*shdwVtxIdx)++];
 
 	if (doesRequireCapping) {
 		// To cap, extend from the limited expansion points out to infinity in
@@ -615,7 +570,7 @@
  */
 -(CC3Vector4) expand: (CC3Vector4) edgeLoc awayFromLocationalLightAt: (CC3Vector4) lightLoc {
 	CC3Vector4 extDir = CC3Vector4Difference(edgeLoc, lightLoc);
-	CC3Vector4 extrusion = CC3Vector4ScaleUniform(extDir, shadowExpansionLimitFactor);
+	CC3Vector4 extrusion = CC3Vector4ScaleUniform(extDir, _shadowExpansionLimitFactor);
 	return CC3Vector4Add(edgeLoc, extrusion);
 }
 
@@ -631,19 +586,19 @@
 			  startingAtIndex: (GLuint*) shdwVtxIdx {
 	
 	// Ensure the mesh has enough capacity for another triangle.
-	BOOL wasMeshExpanded = [self.shadowMesh ensureVertexCapacity: (*shdwVtxIdx + 3)];
+	BOOL wasMeshExpanded = [self.mesh ensureVertexCapacity: (*shdwVtxIdx + 3)];
 	
 	// Add a single triangle face to the cap at the near end, built from the vertices
 	// of the shadow caster face at the specified index. If the face is lit, use the
 	// same winding order. If the face is dark, use the opposite winding.
 	if (isFaceLit) {
-		[mesh setVertexHomogeneousLocation: vertices[0] at: (*shdwVtxIdx)++];
-		[mesh setVertexHomogeneousLocation: vertices[1] at: (*shdwVtxIdx)++];
-		[mesh setVertexHomogeneousLocation: vertices[2] at: (*shdwVtxIdx)++];
+		[_mesh setVertexHomogeneousLocation: vertices[0] at: (*shdwVtxIdx)++];
+		[_mesh setVertexHomogeneousLocation: vertices[1] at: (*shdwVtxIdx)++];
+		[_mesh setVertexHomogeneousLocation: vertices[2] at: (*shdwVtxIdx)++];
 	} else {
-		[mesh setVertexHomogeneousLocation: vertices[0] at: (*shdwVtxIdx)++];
-		[mesh setVertexHomogeneousLocation: vertices[2] at: (*shdwVtxIdx)++];
-		[mesh setVertexHomogeneousLocation: vertices[1] at: (*shdwVtxIdx)++];
+		[_mesh setVertexHomogeneousLocation: vertices[0] at: (*shdwVtxIdx)++];
+		[_mesh setVertexHomogeneousLocation: vertices[2] at: (*shdwVtxIdx)++];
+		[_mesh setVertexHomogeneousLocation: vertices[1] at: (*shdwVtxIdx)++];
 	}
 
 	LogTrace(@"%@ drawing shadow volume near %@end cap face (%@, %@, %@)",
@@ -664,11 +619,11 @@
 			  startingAtIndex: (GLuint*) shdwVtxIdx {
 	
 	// Ensure the mesh has enough capacity for another line
-	BOOL wasMeshExpanded = [self.shadowMesh ensureVertexCapacity: (*shdwVtxIdx + 2)];
+	BOOL wasMeshExpanded = [self.mesh ensureVertexCapacity: (*shdwVtxIdx + 2)];
 	
 	// Add just the two end points of the terminator edge
-	[mesh setVertexHomogeneousLocation: edgeStartLoc at: (*shdwVtxIdx)++];
-	[mesh setVertexHomogeneousLocation: edgeEndLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: edgeStartLoc at: (*shdwVtxIdx)++];
+	[_mesh setVertexHomogeneousLocation: edgeEndLoc at: (*shdwVtxIdx)++];
 	
 	LogTrace(@"%@ drawing terminator line", self);
 	
@@ -680,23 +635,23 @@
 
 /** Overridden to decrement the shadow lag count on each update. */
 -(void) processUpdateBeforeTransform: (CC3NodeUpdatingVisitor*) visitor {
-	shadowLagCount = MAX(shadowLagCount - 1, 0);
+	_shadowLagCount = MAX(_shadowLagCount - 1, 0);
 	[super processUpdateBeforeTransform: visitor];
 }
 
 /** Returns whether the shadow cast by this shadow volume will be visible. */
 -(BOOL) isShadowVisible {
 	CC3MeshNode* scNode = self.shadowCaster;
-	return (light.visible || light.shouldCastShadowsWhenInvisible) &&
+	return (_light.visible || _light.shouldCastShadowsWhenInvisible) &&
 			(scNode.visible || scNode.shouldCastShadowsWhenInvisible || self.visible) &&
-			[scNode doesIntersectBoundingVolume: light.shadowCastingVolume];
+			[scNode doesIntersectBoundingVolume: _light.shadowCastingVolume];
 }
 
 /**
  * Returns whether this shadow volume is ready to be updated.
  * It is if the lag count has been decremented to zero.
  */
--(BOOL) isReadyToUpdate { return (shadowLagCount == 0); }
+-(BOOL) isReadyToUpdate { return (_shadowLagCount == 0); }
 
 /**
  * If the shadow is ready to be updated, check if the shadow is both
@@ -708,17 +663,17 @@
  * due to it being invisible, or not dirty.
  */
 -(void) updateShadow {
-	LogTrace(@"Testing to update %@ with shadow lag count %i", self, shadowLagCount);
+	LogTrace(@"Testing to update %@ with shadow lag count %i", self, _shadowLagCount);
 	if (self.isReadyToUpdate) {
 		if (self.isShadowVisible) {
 			[self updateStencilAlgorithm];
-			if (isShadowDirty) {
+			if (_isShadowDirty) {
 				LogTrace(@"Updating %@", self);
 				[self populateShadowMesh];
-				isShadowDirty = NO;
+				_isShadowDirty = NO;
 			}
 		}
-		shadowLagCount = shadowLagFactor;
+		_shadowLagCount = _shadowLagFactor;
 	}
 }
 
@@ -735,21 +690,19 @@
  * as dirty so that the end caps will be added or removed appropriately.
  */
 -(void) updateStencilAlgorithm {
-	BOOL oldAlgo = useDepthFailAlgorithm;
+	BOOL oldAlgo = _useDepthFailAlgorithm;
 
-	useDepthFailAlgorithm = !shouldAddEndCapsOnlyWhenNeeded ||
-							[self.shadowCaster doesIntersectBoundingVolume: light.cameraShadowVolume];
+	_useDepthFailAlgorithm = !_shouldAddEndCapsOnlyWhenNeeded ||
+							[self.shadowCaster doesIntersectBoundingVolume: _light.cameraShadowVolume];
 	
 	// If the stencil algo was changed, mark this shadow as dirty,
 	// so that end caps will be added or removed.
-	if (useDepthFailAlgorithm != oldAlgo) {
-		isShadowDirty = YES;
-	}
+	if (_useDepthFailAlgorithm != oldAlgo) _isShadowDirty = YES;
 }
 
 /** Overridden to remove this shadow node from the light. */
 -(void) wasRemoved {
-	[light removeShadow: self];
+	[_light removeShadow: self];
 	[super wasRemoved];
 }
 
@@ -763,13 +716,13 @@
 
 -(void) transformMatrixChanged {
 	[super transformMatrixChanged];
-	isShadowDirty = YES;
+	_isShadowDirty = YES;
 }
 
 /** A node that affects this shadow (generally the light) was transformed. Mark the shadow as dirty. */
 -(void) nodeWasTransformed: (CC3Node*) aNode { 
 	[super nodeWasTransformed: aNode];
-	isShadowDirty = YES;
+	_isShadowDirty = YES;
 }
 
 
@@ -778,33 +731,29 @@
 /** Overridden to set the line properties in addition to other configuration. */
 -(void) configureDrawingParameters: (CC3NodeDrawingVisitor*) visitor {
 	[super configureDrawingParameters: visitor];
-	if (shouldDrawTerminator) {
-		[CC3OpenGLES11Engine engine].state.lineWidth.value = 1.0f;
-	}
+	if (_shouldDrawTerminator) visitor.gl.lineWidth = 1.0f;
 }
 
 -(void) drawToStencilWithVisitor: (CC3NodeDrawingVisitor*) visitor {
-	LogTrace(@"Drawing %@ using depth %@ algo", self, (useDepthFailAlgorithm ? @"fail" : @"pass"));
+	LogTrace(@"Drawing %@ using depth %@ algo", self, (_useDepthFailAlgorithm ? @"fail" : @"pass"));
 	[self drawToStencilIncrementing: YES withVisitor: visitor];
 	[self drawToStencilIncrementing: NO  withVisitor: visitor];
 }
 
 -(void) drawToStencilIncrementing: (BOOL) isIncrementing
 					  withVisitor: (CC3NodeDrawingVisitor*) visitor {
-	
-	CC3OpenGLES11State* gles11State = [CC3OpenGLES11Engine engine].state;
 	GLenum zFailOp, zPassOp;
 	BOOL useFrontFaces;
 
 	// Set the stencil operation based on whether we are incrementing or decrementing the stencil.
-	GLenum stencilOp = isIncrementing ? GL_INCR_WRAP_OES : GL_DECR_WRAP_OES;
+	GLenum stencilOp = isIncrementing ? GL_INCR_WRAP : GL_DECR_WRAP;
 	
 	// Depending on whether we are using the depth-fail, or depth-pass algorithm, perform the
 	// increment/decrement stencil operation when the depth test fails or passes, respectively,
 	// and simply retain the current stencil value otherwise. Also, determine whether we want
 	// to cull either the front or back faces, depending on which stencil algorithm we are
 	// using, and whether we are on the incrementing or decrementing pass.
-	if (useDepthFailAlgorithm) {
+	if (_useDepthFailAlgorithm) {
 		zFailOp = stencilOp;				// Increment/decrment the stencil on depth fail...
 		zPassOp = GL_KEEP;					// ...otherwise keep the current stencil value.
 		useFrontFaces = !isIncrementing;	// Cull front faces when incrementing, back faces when decrementing
@@ -815,7 +764,7 @@
 	}
 
 	// Configure the stencil buffer operations
-	[gles11State.stencilOperation applyStencilFail: GL_KEEP andDepthFail: zFailOp andDepthPass: zPassOp];
+	[visitor.gl setOpOnStencilFail: GL_KEEP onDepthFail: zFailOp onDepthPass: zPassOp];
 	
 	// Remember current culling configuration for this shadow volume
 	BOOL wasCullingBackFaces = self.shouldCullBackFaces;
@@ -860,9 +809,7 @@
 -(void) setShouldDrawBoundingVolume: (BOOL) shouldDraw {}
 
 // Overridden so that not touchable unless specifically set as such
--(BOOL) isTouchable {
-	return (self.visible || shouldAllowTouchableWhenInvisible) && isTouchEnabled;
-}
+-(BOOL) isTouchable { return (self.visible || _shouldAllowTouchableWhenInvisible) && self.isTouchEnabled; }
 
 @end
 
@@ -872,47 +819,17 @@
 
 @implementation CC3StencilledShadowPainterNode
 
-@synthesize light;
-
--(void) dealloc {
-	light = nil;		// not retained
-	[super dealloc];
-}
-
 /** The shadow painter is always drawn. */
 -(BOOL) isShadowVisible { return YES; }
 
 
-#pragma mark Allocation and initialization
+#pragma mark CC3ShadowProtocol support
 
-/** Initializes the node with a rectangular mesh and black material. */
--(id) initWithTag: (GLuint) aTag withName: (NSString*) aName {
-	if ( (self = [super initWithTag: aTag withName: aName]) ) {
-		[self populateAsCenteredRectangleWithSize: CGSizeMake(2.0, 2.0)];
-		self.color = ccBLACK;
-		light = nil;
-	}
-	return self;
-}
-
-// Template method that populates this instance from the specified other instance.
-// This method is invoked automatically during object copying via the copyWithZone: method.
--(void) populateFrom: (CC3ShadowVolumeMeshNode*) another {
-	[super populateFrom: another];
-	
-	self.light = another.light;						// not retained
-}
-
-/** Overridden to use an infinite bounding volume so that the shadow painter is always drawn. */
--(CC3NodeBoundingVolume*) defaultBoundingVolume {
-	return [CC3NodeInfiniteBoundingVolume boundingVolume];
-}
-
-
-#pragma mark Updating
-
-/** Nothing to update. */
 -(void) updateShadow {}
+
+-(CC3Light*) light { return nil; }
+
+-(void) setLight: (CC3Light*) light {}
 
 @end
 
@@ -924,15 +841,12 @@
 
 -(id) init {
 	if ( (self = [super init]) ) {
-		shouldVisitChildren = NO;
-		shouldClearDepthBuffer = NO;
+		_shouldVisitChildren = NO;
 	}
 	return self;
 }
 
--(BOOL) shouldDrawNode: (CC3Node*) aNode {
-	return ((CC3ShadowVolumeMeshNode*)aNode).isShadowVisible;
-}
+-(BOOL) shouldDrawNode: (CC3Node*) aNode { return aNode.isShadowVisible; }
 
 @end
 
@@ -945,92 +859,64 @@
 -(BOOL) isShadowVolume { return NO; }
 
 -(void) addShadowVolumes {
-	for (CC3Light* lt in self.scene.lights) {
-		[self addShadowVolumesForLight: lt];
-	}
+	for (CC3Light* lt in self.scene.lights) [self addShadowVolumesForLight: lt];
 }
 
 -(void) addShadowVolumesForLight: (CC3Light*) aLight {
-	for (CC3Node* child in children) {
-		[child addShadowVolumesForLight: aLight];
-	}
+	for (CC3Node* child in _children) [child addShadowVolumesForLight: aLight];
 }
 
--(CCArray*) shadowVolumes {
-	CCArray* svs = [CCArray array];
-	for (CC3Node* child in children) {
-		if (child.isShadowVolume) {
-			[svs addObject: child];
-		}
-	}
+-(NSArray*) shadowVolumes {
+	NSMutableArray* svs = [NSMutableArray array];
+	for (CC3Node* child in _children) if (child.isShadowVolume) [svs addObject: child];
 	return svs;
 }
 
 -(CC3ShadowVolumeMeshNode*) getShadowVolumeForLight:  (CC3Light*) aLight {
-	for (CC3ShadowVolumeMeshNode* sv in self.shadowVolumes) {
-		if (sv.light == aLight) return sv;
-	}
+	for (CC3ShadowVolumeMeshNode* sv in self.shadowVolumes) if (sv.light == aLight) return sv;
 	return nil;
 }
 
 -(BOOL) hasShadowVolumesForLight: (CC3Light*) aLight {
-	for (CC3Node* child in children) {
-		if ( [child hasShadowVolumesForLight: aLight] ) return YES;
-	}
+	for (CC3Node* child in _children) if ( [child hasShadowVolumesForLight: aLight] ) return YES;
 	return NO;
 }
 
 -(BOOL) hasShadowVolumes {
-	for (CC3Node* child in children) {
-		if ( [child hasShadowVolumes] ) return YES;
-	}
+	for (CC3Node* child in _children) if ( [child hasShadowVolumes] ) return YES;
 	return NO;
 }
 
 -(void) removeShadowVolumesForLight: (CC3Light*) aLight {
 	[[self getShadowVolumeForLight: aLight] remove];
-	for (CC3Node* child in children) {
-		[child removeShadowVolumesForLight: aLight];
-	}
+	for (CC3Node* child in _children) [child removeShadowVolumesForLight: aLight];
 }
 
 -(void) removeShadowVolumes {
-	for (CC3Node* sv in self.shadowVolumes) {
-		[sv remove];
-	}
-	for (CC3Node* child in children) {
-		[child removeShadowVolumes];
-	}
+	for (CC3Node* sv in self.shadowVolumes) [sv remove];
+	for (CC3Node* child in _children) [child removeShadowVolumes];
 }
 
 -(BOOL) shouldShadowFrontFaces {
-	for (CC3Node* child in children) {
-		if ( !child.shouldShadowFrontFaces ) return NO;
-	}
+	for (CC3Node* child in _children) if ( !child.shouldShadowFrontFaces ) return NO;
 	return YES;
 }
 
 -(void) setShouldShadowFrontFaces: (BOOL) shouldShadow {
-	for (CC3Node* child in children) {
-		child.shouldShadowFrontFaces = shouldShadow;
-	}
+	for (CC3Node* child in _children) child.shouldShadowFrontFaces = shouldShadow;
 }
 
 -(BOOL) shouldShadowBackFaces {
-	for (CC3Node* child in children) {
-		if (child.shouldShadowBackFaces ) return YES;
-	}
+	for (CC3Node* child in _children) if (child.shouldShadowBackFaces ) return YES;
 	return NO;
 }
 
 -(void) setShouldShadowBackFaces: (BOOL) shouldShadow {
-	for (CC3Node* child in children) {
-		child.shouldShadowBackFaces = shouldShadow;
-	}
+	for (CC3Node* child in _children) child.shouldShadowBackFaces = shouldShadow;
 }
 
 -(GLfloat) shadowOffsetFactor {
-	for (CC3Node* child in children) {
+	for (CC3Node* child in _children) {
 		GLfloat sf = child.shadowOffsetFactor;
 		if (sf) return sf;
 	}
@@ -1038,13 +924,11 @@
 }
 
 -(void) setShadowOffsetFactor: (GLfloat) factor {
-	for (CC3Node* child in children) {
-		child.shadowOffsetFactor = factor;
-	}
+	for (CC3Node* child in _children) child.shadowOffsetFactor = factor;
 }
 
 -(GLfloat) shadowOffsetUnits {
-	for (CC3Node* child in children) {
+	for (CC3Node* child in _children) {
 		GLfloat su = child.shadowOffsetUnits;
 		if (su) return su;
 	}
@@ -1052,13 +936,11 @@
 }
 
 -(void) setShadowOffsetUnits: (GLfloat) units {
-	for (CC3Node* child in children) {
-		child.shadowOffsetUnits = units;
-	}
+	for (CC3Node* child in _children) child.shadowOffsetUnits = units;
 }
 
 -(GLfloat) shadowVolumeVertexOffsetFactor {
-	for (CC3Node* child in children) {
+	for (CC3Node* child in _children) {
 		GLfloat svf = child.shadowVolumeVertexOffsetFactor;
 		if (svf) return svf;
 	}
@@ -1066,26 +948,20 @@
 }
 
 -(void) setShadowVolumeVertexOffsetFactor: (GLfloat) voFactor {
-	for (CC3Node* child in children) {
-		child.shadowVolumeVertexOffsetFactor = voFactor;
-	}
+	for (CC3Node* child in _children) child.shadowVolumeVertexOffsetFactor = voFactor;
 }
 
 -(GLfloat) shadowExpansionLimitFactor {
-	for (CC3Node* child in children) {
-		return child.shadowExpansionLimitFactor;
-	}
+	for (CC3Node* child in _children) return child.shadowExpansionLimitFactor;
 	return 0.0f;
 }
 
 -(void) setShadowExpansionLimitFactor: (GLfloat) limFactor {
-	for (CC3Node* child in children) {
-		child.shadowExpansionLimitFactor = limFactor;
-	}
+	for (CC3Node* child in _children) child.shadowExpansionLimitFactor = limFactor;
 }
 
 -(GLushort) shadowLagFactor {
-	for (CC3Node* child in children) {
+	for (CC3Node* child in _children) {
 		GLushort slf = child.shadowLagFactor;
 		if (slf > 1) return slf;
 	}
@@ -1098,14 +974,12 @@
  * value will be set in all descendants.
  */
 -(void) setShadowLagFactor: (GLushort) lagFactor {
-	for (CC3Node* child in children) {
-		child.shadowLagFactor = lagFactor;
-	}
+	for (CC3Node* child in _children) child.shadowLagFactor = lagFactor;
 	self.shadowLagCount = CC3RandomUIntBelow(lagFactor) + 1;
 }
 
 -(GLushort) shadowLagCount {
-	for (CC3Node* child in children) {
+	for (CC3Node* child in _children) {
 		GLushort slc = child.shadowLagCount;
 		if (slc > 0) return slc;
 	}
@@ -1113,23 +987,25 @@
 }
 
 -(void) setShadowLagCount: (GLushort) lagCount {
-	for (CC3Node* child in children) {
-		child.shadowLagCount = lagCount;
-	}
+	for (CC3Node* child in _children) child.shadowLagCount = lagCount;
 }
 
 -(BOOL) shouldAddShadowVolumeEndCapsOnlyWhenNeeded {
-	for (CC3Node* child in children) {
+	for (CC3Node* child in _children)
 		if ( !child.shouldAddShadowVolumeEndCapsOnlyWhenNeeded ) return NO;
-	}
 	return YES;
 }
 
 -(void) setShouldAddShadowVolumeEndCapsOnlyWhenNeeded: (BOOL) onlyWhenNeeded {
-	for (CC3Node* child in children) {
+	for (CC3Node* child in _children)
 		child.shouldAddShadowVolumeEndCapsOnlyWhenNeeded = onlyWhenNeeded;
-	}
 }
+
+-(void) prewarmForShadowVolumes {
+	for (CC3Node* child in _children) [child prewarmForShadowVolumes];
+}
+
+-(BOOL) isShadowVisible { return NO; }
 
 @end
 
@@ -1140,25 +1016,45 @@
 @implementation CC3MeshNode (ShadowVolumes)
 
 -(void) addShadowVolumesForLight: (CC3Light*) aLight {
-	if ( [self getShadowVolumeForLight: aLight] ) return;
+	// If I shouldn't cast a shadow, or if I already have a shadow volume, just leave.
+	if ( !self.shouldCastShadows || [self getShadowVolumeForLight: aLight] ) return;
 	
 	NSString* svName = [NSString stringWithFormat: @"%@-SV-%@", self.name, aLight.name];
 	CC3Node<CC3ShadowProtocol>* sv = [[self shadowVolumeClass] nodeWithName: svName];
-	[aLight addShadow: sv];			// Add to light before notifying scene a descendant has been added
-	[self addChild: sv];
-
+	[sv selectShaders];
+//	sv.visible = YES;		// Uncomment to show the shadow volume itself !
+	
 	// Retain data required to build shadow volume mesh
 	[self retainVertexLocations];
 	[self retainVertexIndices];
 	self.shouldCacheFaces = YES;
+	
+	[self prewarmForShadowVolumes];		// Force heavy face calcs now instead of lazily during drawing.
 
 	// Set the active camera to infinite depth of field to accomodate infinite shadow volumes
 	self.activeCamera.hasInfiniteDepthOfField = YES;
+
+	[aLight addShadow: sv];			// Add to light before notifying scene a descendant has been added
+	[self addChild: sv];			// The last thing we do is add the SV to the scene...
+									// ...because we might be doing this on a background thread.
+	LogTrace(@"Added shadow volume %@ to %@", sv, self);
 
 	[super addShadowVolumesForLight: aLight];
 }
 
 -(id) shadowVolumeClass { return [CC3ShadowVolumeMeshNode class]; }
+
+-(void) prewarmForShadowVolumes {
+	if (self.faceCount == 0) return;
+
+	// Sample each face characteristics used during shadow volume creation,
+	// in order to force the face characteristics to be lazily populated.
+	[self deformedFaceAt: 0];
+	[self deformedFacePlaneAt: 0];
+	[self faceNeighboursAt: 0];
+	
+	[super prewarmForShadowVolumes];
+}
 
 @end
 
@@ -1169,9 +1065,7 @@
 @implementation CC3Billboard (ShadowVolumes)
 
 -(void) addShadowVolumesForLight: (CC3Light*) aLight {
-	if (!mesh) {
-		[self populateAsBoundingRectangle];
-	}
+	if (!_mesh) [self populateAsBoundingRectangle];
 
 	[super addShadowVolumesForLight: aLight];
 
@@ -1193,8 +1087,8 @@
 	[super addShadowVolumesForLight: aLight];
 	
 	// Retain data required to build shadow volume mesh
-	[self retainVertexMatrixIndices];
-	[self retainVertexWeights];
+	[self retainVertexBoneIndices];
+	[self retainVertexBoneWeights];
 }
 
 @end
