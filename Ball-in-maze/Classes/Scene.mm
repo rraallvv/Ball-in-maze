@@ -242,7 +242,7 @@
 	// step the physcis simulation
 	
 	_discreteDynamicsWorld->setGravity(_accelerometer);
-	_discreteDynamicsWorld->stepSimulation(1./60, 2);
+	_discreteDynamicsWorld->stepSimulation(1./60);
 	
 	
 	// update the Cocos3d models' transformations
@@ -273,7 +273,7 @@
 			
 			if (CC3Node *node = (__bridge CC3Node*)body->getUserPointer()) {
 				
-				// fix and update physics orientation being diferent from that in the 3d model world space
+				// the orientation and axes in Bullet are diferent from those in Cocos3d, we need to make the coresponding adjusment here
 				btQuaternion rotation = btQuaternion(btVector3(1,0,0), -SIMD_HALF_PI) * trans.getRotation();
 				CC3Quaternion quaternion;
 				quaternion.x = rotation.getX();
@@ -281,8 +281,7 @@
 				quaternion.z = rotation.getZ();
 				quaternion.w = -rotation.getW();
 				node.quaternion = quaternion;
-				
-				// fix and update physics coordinates being swaped in relation to the 3d model world space
+
 				CC3Vector position;
 				position.x =  trans.getOrigin().x();
 				position.y =  trans.getOrigin().z();
