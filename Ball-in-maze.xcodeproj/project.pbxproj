@@ -486,6 +486,16 @@
 		E4A23D4718BFCFBF00B8A3B5 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E4A23D4618BFCFBF00B8A3B5 /* CoreMotion.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		E42E37F71A958C9A000D5DC5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E489225F18BF126400BA5141 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E48924C818BF126800BA5141;
+			remoteInfo = cocos2d;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		E489226718BF126500BA5141 /* Ball-in-maze.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ball-in-maze.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E489226A18BF126500BA5141 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
@@ -3242,6 +3252,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				E42E37F81A958C9A000D5DC5 /* PBXTargetDependency */,
 			);
 			name = "Ball-in-maze";
 			productName = test;
@@ -3271,7 +3282,7 @@
 		E489225F18BF126400BA5141 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0500;
+				LastUpgradeCheck = 0610;
 				ORGANIZATIONNAME = "Rhody Lugo";
 			};
 			buildConfigurationList = E489226218BF126400BA5141 /* Build configuration list for PBXProject "Ball-in-maze" */;
@@ -3792,12 +3803,21 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		E42E37F81A958C9A000D5DC5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E48924C818BF126800BA5141 /* cocos2d */;
+			targetProxy = E42E37F71A958C9A000D5DC5 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
 		E489264118BF126B00BA5141 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				IPHONEOS_DEPLOYMENT_TARGET = 4.0;
+				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
